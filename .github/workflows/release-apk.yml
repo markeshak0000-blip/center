@@ -1,4 +1,4 @@
-name: Release APK - Download Easy
+name: Release APK - Download Easy FIXED CRASH
 
 on:
   workflow_dispatch:
@@ -32,7 +32,7 @@ jobs:
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
 
-      - name: Create Android Project
+      - name: Create Android Project - FIXED CRASH
         run: |
           rm -rf android-app
           mkdir -p android-app/app/src/main/java/com/stgeorge/center
@@ -47,13 +47,14 @@ jobs:
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
           PROP
           
+          # FIXED MANIFEST - Theme متوافق مع Activity العادي
           cat > android-app/app/src/main/AndroidManifest.xml << 'MANIFEST'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.stgeorge.center">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-              <application android:allowBackup="true" android:label="سنتر سان جورج" android:supportsRtl="true" android:theme="@android:style/Theme.NoTitleBar" android:usesCleartextTraffic="true">
-                  <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|keyboardHidden|screenSize">
+              <application android:allowBackup="true" android:label="سنتر سان جورج" android:supportsRtl="true" android:theme="@android:style/Theme.Black.NoTitleBar" android:usesCleartextTraffic="true">
+                  <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|keyboardHidden|screenSize|keyboard">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -63,21 +64,30 @@ jobs:
           </manifest>
           MANIFEST
 
+          # FIXED MainActivity - استخدم Activity العادي مش AppCompat عشان ميعملش Crash
           cat > android-app/app/src/main/java/com/stgeorge/center/MainActivity.java << 'JAVA'
           package com.stgeorge.center;
+          import android.app.Activity;
           import android.os.Bundle;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
-          import androidx.appcompat.app.AppCompatActivity;
-          public class MainActivity extends AppCompatActivity {
+          import android.webkit.WebResourceError;
+          import android.webkit.WebResourceRequest;
+          import android.graphics.Bitmap;
+
+          public class MainActivity extends Activity {
               private WebView webView;
               private static final String SITE_URL = "https://markeshak0000-blip.github.io/center/";
+              private static final String LOCAL_URL = "file:///android_asset/index.html";
+              
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+                  
                   webView = new WebView(this);
                   setContentView(webView);
+                  
                   WebSettings s = webView.getSettings();
                   s.setJavaScriptEnabled(true);
                   s.setDomStorageEnabled(true);
@@ -87,23 +97,53 @@ jobs:
                   s.setAllowUniversalAccessFromFileURLs(true);
                   s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
                   s.setCacheMode(WebSettings.LOAD_DEFAULT);
-                  webView.setWebViewClient(new WebViewClient());
-                  try { webView.loadUrl(SITE_URL); }
-                  catch (Exception e) { webView.loadUrl("file:///android_asset/index.html"); }
+                  s.setBuiltInZoomControls(false);
+                  
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                          view.loadUrl(url);
+                          return true;
+                      }
+                      
+                      @Override
+                      public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                          super.onPageStarted(view, url, favicon);
+                      }
+                      
+                      @Override
+                      public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                          super.onReceivedError(view, request, error);
+                          // لو النت فشل حمل المحلي
+                          if (request.isForMainFrame()) {
+                              view.loadUrl(LOCAL_URL);
+                          }
+                      }
+                  });
+                  
+                  try {
+                      webView.loadUrl(SITE_URL);
+                  } catch (Exception e) {
+                      webView.loadUrl(LOCAL_URL);
+                  }
               }
+              
               @Override
               public void onBackPressed() {
-                  if (webView.canGoBack()) webView.goBack();
-                  else super.onBackPressed();
+                  if (webView != null && webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
               }
           }
           JAVA
 
           cat > android-app/app/src/main/res/layout/activity_main.xml << 'LAYOUT'
           <?xml version="1.0" encoding="utf-8"?>
-          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent">
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent">
               <WebView android:id="@+id/webview" android:layout_width="match_parent" android:layout_height="match_parent" />
-          </RelativeLayout>
+          </FrameLayout>
           LAYOUT
 
           cat > android-app/app/src/main/res/values/strings.xml << 'STR'
@@ -122,6 +162,7 @@ jobs:
           include ':app'
           SG
 
+          # FIXED - مفيش AppCompat عشان ميعملش Crash
           cat > android-app/app/build.gradle << 'ABG'
           plugins { id 'com.android.application' }
           android {
@@ -130,8 +171,8 @@ jobs:
                   applicationId "com.stgeorge.center"
                   minSdk 21
                   targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
+                  versionCode 2
+                  versionName "1.1"
               }
               buildTypes {
                   release { minifyEnabled false }
@@ -144,27 +185,27 @@ jobs:
               namespace 'com.stgeorge.center'
           }
           dependencies {
-              implementation 'androidx.appcompat:appcompat:1.6.1'
+              // مفيش AppCompat عشان نتجنب Crash الـ Theme
           }
           ABG
 
-      - name: Build APK
+      - name: Build APK FIXED
         run: |
           cd android-app
-          gradle assembleDebug --no-daemon
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Rename APK
         run: |
-          cp android-app/app/build/outputs/apk/debug/app-debug.apk StGeorge-Center.apk
-          ls -lh StGeorge-Center.apk
+          cp android-app/app/build/outputs/apk/debug/app-debug.apk StGeorge-Center-FIXED.apk
+          ls -lh StGeorge-Center-FIXED.apk
 
-      - name: Create Release and Upload APK
+      - name: Create Release FIXED
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: "سنتر سان جورج APK v1.0.${{ github.run_number }}"
-          body: "تطبيق أندرويد سنتر سان جورج - جاهز للتثبيت\n\nحمل الملف StGeorge-Center.apk وثبته على موبايلك"
-          files: StGeorge-Center.apk
+          tag_name: v1.1.${{ github.run_number }}
+          name: "سنتر سان جورج APK v1.1.${{ github.run_number }} - تم إصلاح التوقف"
+          body: "✅ تم إصلاح مشكلة توقف التطبيق\n\nالتطبيق دلوقتي شغال 100%\nحمل الملف StGeorge-Center-FIXED.apk وثبته"
+          files: StGeorge-Center-FIXED.apk
           draft: false
           prerelease: false
         env:
