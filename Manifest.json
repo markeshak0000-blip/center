@@ -1,0 +1,30 @@
+{
+  "background_color": "#f8fafc",
+  "categories": [
+    "education",
+    "business"
+  ],
+  "description": "نظام إدارة سنتر تعليمي مدعوم - كنيسة - فرع واحد - Offline PWA",
+  "dir": "rtl",
+  "display": "standalone",
+  "icons": [
+    {
+      "purpose": "any maskable",
+      "sizes": "192x192",
+      "src": "./assets/icons/icon-192.png",
+      "type": "image/png"
+    },
+    {
+      "purpose": "any maskable",
+      "sizes": "512x512",
+      "src": "./assets/icons/icon-512.png",
+      "type": "image/png"
+    }
+  ],
+  "lang": "ar",
+  "name": "سنتر سان جورج - نظام الإدارة المتكامل",
+  "orientation": "any",
+  "short_name": "سان جورج",
+  "start_url": "./index.html",
+  "theme_color": "#1e40af"
+}
