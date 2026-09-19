@@ -1,4 +1,4 @@
-name: Build Android APK - St George Center FINAL FIX
+name: Build Android APK - St George Center FINAL FIX 2
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Gradle 8.2.1 (FIX for Gradle 9 issue)
+      - name: Setup Gradle 8.2.1
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.2.1
@@ -29,14 +29,20 @@ jobs:
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
 
-      - name: Create Android Project
+      - name: Create Android Project with gradle.properties FIX
         run: |
           rm -rf android-app
           mkdir -p android-app/app/src/main/java/com/stgeorge/center
           mkdir -p android-app/app/src/main/res/layout
           mkdir -p android-app/app/src/main/res/values
           mkdir -p android-app/app/src/main/assets
-          cp index.html android-app/app/src/main/assets/index.html 2>/dev/null || echo "<html><body>St George Center</body></html>" > android-app/app/src/main/assets/index.html
+          cp index.html android-app/app/src/main/assets/index.html 2>/dev/null || echo "<html><body>St George</body></html>" > android-app/app/src/main/assets/index.html
+          
+          cat > android-app/gradle.properties << 'PROP'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          PROP
           
           cat > android-app/app/src/main/AndroidManifest.xml << 'MANIFEST'
           <?xml version="1.0" encoding="utf-8"?>
@@ -139,7 +145,7 @@ jobs:
           }
           ABG
 
-      - name: Build APK with Gradle 8.2.1
+      - name: Build APK
         run: |
           cd android-app
           gradle assembleDebug --no-daemon --stacktrace
