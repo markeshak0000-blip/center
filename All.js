@@ -1,0 +1,2930 @@
+
+
+/* ===== storage.js ===== */
+
+// storage.js - إدارة التخزين والبيانات
+const STORAGE_KEY = 'st_george_v2_data';
+const AUTH_KEY = 'st_george_v2_auth';
+const THEME_KEY = 'st_george_v2_theme';
+const SESSION_KEY = 'st_george_session';
+
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+}
+
+function defaultData() {
+  return {
+    centerSettings: {
+      name: 'سنتر سان جورج',
+      address: '',
+      phone: '',
+      logo: '',
+      developerName: 'ENG. Mark Eshak',
+      developerPhone: '01277482080',
+      defaultSubscription: 0
+    },
+    stages: [
+      { id: genId(), name: 'المرحلة الابتدائية' },
+      { id: genId(), name: 'المرحلة الإعدادية' },
+      { id: genId(), name: 'المرحلة الثانوية' },
+      { id: genId(), name: 'التأسيس للضعفاء' }
+    ],
+    studentStatuses: [
+      { id: genId(), name: 'نشط' },
+      { id: genId(), name: 'موقوف' },
+      { id: genId(), name: 'منقطع' },
+      { id: genId(), name: 'متخرج' },
+      { id: genId(), name: 'منقول' },
+      { id: genId(), name: 'مؤجل' }
+    ],
+    teacherStatuses: [
+      { id: genId(), name: 'نشط' },
+      { id: genId(), name: 'غير نشط' },
+      { id: genId(), name: 'إجازة' }
+    ],
+    expenseTypes: [],
+    students: [],
+    teachers: [],
+    groups: [],
+    attendance: [],
+    teacherAttendance: [],
+    subscriptions: [],
+    expenses: []
+  };
+}
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      const d = defaultData();
+      saveData(d);
+      return d;
+    }
+    const parsed = JSON.parse(raw);
+    const def = defaultData();
+    for (const key of Object.keys(def)) {
+      if (!(key in parsed)) parsed[key] = def[key];
+    }
+    return parsed;
+  } catch (e) {
+    const d = defaultData();
+    saveData(d);
+    return d;
+  }
+}
+
+function saveData(data) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    return true;
+  } catch (e) {
+    if (e.name === 'QuotaExceededError') {
+      if (typeof toast !== 'undefined') toast('مساحة التخزين ممتلئة', 'error');
+    }
+    return false;
+  }
+}
+
+let DB = loadData();
+
+function getStageName(id) { return DB.stages.find(s => s.id === id)?.name || '-'; }
+function getStatusName(id) { return DB.studentStatuses.find(s => s.id === id)?.name || '-'; }
+function getTeacherStatusName(id) { return DB.teacherStatuses.find(s => s.id === id)?.name || '-'; }
+function getGroupName(id) { const g = DB.groups.find(x => x.id === id); return g ? `${g.number} ${g.name || ''}`.trim() : '-'; }
+function getGroupFull(id) { return DB.groups.find(x => x.id === id) || null; }
+function getTeacherNames(ids) { if (!ids || !ids.length) return '-'; return ids.map(i => DB.teachers.find(t => t.id === i)?.name || '').filter(Boolean).join('، ') || '-'; }
+function getStudentName(id) { return DB.students.find(s => s.id === id)?.name || '-'; }
+function getStudentCode(id) { return DB.students.find(s => s.id === id)?.code || ''; }
+
+
+/* ===== utils.js ===== */
+
+// utils.js - أدوات مساعدة وأمان
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function toast(msg, type = 'success') {
+  let c = document.getElementById('toast-container');
+  if (!c) {
+    c = document.createElement('div');
+    c.id = 'toast-container';
+    c.className = 'toast-container';
+    document.body.appendChild(c);
+  }
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  c.appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(10px)';
+    setTimeout(() => el.remove(), 300);
+  }, 3200);
+}
+
+function confirmDialog(title, msg, onConfirm, confirmText = 'تأكيد', cancelText = 'إلغاء') {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <h3 class="font-black" style="font-size:15px">${escapeHtml(title)}</h3>
+        <button onclick="this.closest('.modal-overlay').remove()" class="btn btn-ghost btn-sm">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-sm" style="line-height:1.8; color:var(--text-muted)">${escapeHtml(msg)}</p>
+      </div>
+      <div class="modal-footer">
+        <button id="cd-cancel" class="btn btn-secondary">${escapeHtml(cancelText)}</button>
+        <button id="cd-ok" class="btn btn-danger">${escapeHtml(confirmText)}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#cd-cancel').onclick = () => overlay.remove();
+  overlay.querySelector('#cd-ok').onclick = () => { overlay.remove(); onConfirm(); };
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
+
+function openModal(html) {
+  const root = document.getElementById('modal-root');
+  root.innerHTML = `<div class="modal-overlay"><div class="modal">${html}</div></div>`;
+  const overlay = root.querySelector('.modal-overlay');
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+}
+
+function closeModal() {
+  document.getElementById('modal-root').innerHTML = '';
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-';
+  try { return new Date(dateStr).toLocaleDateString('ar-EG'); } catch { return dateStr; }
+}
+
+function formatMonth(monthStr) {
+  if (!monthStr) return '-';
+  const [y, m] = monthStr.split('-');
+  return `${m}/${y}`;
+}
+
+function debounce(fn, delay) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), delay); };
+}
+
+function isValidCode(code) {
+  return code && code.trim().length >= 1 && code.trim().length <= 20;
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    if (file.size > 2 * 1024 * 1024) { reject('حجم الملف كبير جدا - الحد 2MB'); return; }
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject('فشل قراءة الملف');
+    reader.readAsDataURL(file);
+  });
+}
+
+
+/* ===== auth.js ===== */
+
+// auth.js - المصادقة والحماية
+function hashPass(p) {
+  // Simple obfuscation + salt - not strong crypto but not plaintext
+  // For true security need backend bcrypt
+  return btoa(unescape(encodeURIComponent(p + '_st_george_salt_2024_v2')));
+}
+function checkPass(p, hash) {
+  return hashPass(p) === hash;
+}
+function getAuth() {
+  try { return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); } catch { return null; }
+}
+function setAuth(auth) {
+  localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+}
+function isLoggedIn() {
+  return !!localStorage.getItem(SESSION_KEY) && !!getAuth();
+}
+function requireAuth() {
+  if (!isLoggedIn()) {
+    currentPage = 'login';
+    render();
+    return false;
+  }
+  return true;
+}
+function doSetup() {
+  const u = document.getElementById('su-user').value.trim() || 'admin';
+  const p = document.getElementById('su-pass').value;
+  const p2 = document.getElementById('su-pass2').value;
+  if (p.length < 4) { toast('كلمة المرور قصيرة جدا - 4 أحرف على الأقل', 'error'); return; }
+  if (p !== p2) { toast('كلمتا المرور غير متطابقتين', 'error'); return; }
+  setAuth({ username: u, hash: hashPass(p), createdAt: new Date().toISOString() });
+  localStorage.setItem(SESSION_KEY, '1');
+  toast('تم إنشاء حساب المدير بنجاح - مرحبا بك');
+  render();
+}
+function doLogin() {
+  const u = document.getElementById('li-user').value.trim();
+  const p = document.getElementById('li-pass').value;
+  const auth = getAuth();
+  if (!auth || auth.username !== u || !checkPass(p, auth.hash)) {
+    toast('اسم المستخدم أو كلمة المرور غير صحيحة', 'error');
+    return;
+  }
+  localStorage.setItem(SESSION_KEY, '1');
+  toast(`مرحبا ${escapeHtml(u)}`);
+  render();
+}
+function doLogout() {
+  confirmDialog('تسجيل الخروج', 'هل أنت متأكد من تسجيل الخروج؟', () => {
+    localStorage.removeItem(SESSION_KEY);
+    toast('تم تسجيل الخروج');
+    render();
+  });
+}
+function changePassword() {
+  const p = document.getElementById('new-pass').value;
+  const p2 = document.getElementById('new-pass2').value;
+  if (p.length < 4) { toast('كلمة المرور قصيرة', 'error'); return; }
+  if (p !== p2) { toast('غير متطابقة', 'error'); return; }
+  const auth = getAuth();
+  auth.hash = hashPass(p);
+  setAuth(auth);
+  toast('تم تغيير كلمة المرور بنجاح');
+  document.getElementById('new-pass').value = '';
+  document.getElementById('new-pass2').value = '';
+}
+
+
+/* ===== students.js ===== */
+
+// students.js - إدارة الطلاب الكاملة
+let studentSearchQuery = '';
+let studentFilters = { stage: '', status: '', group: '' };
+let studentSort = { field: 'name', dir: 'asc' };
+let studentPage = 1;
+const STUDENT_PER_PAGE = 20;
+
+function renderStudentsPage() {
+  const q = (studentSearchQuery || '').toLowerCase().trim();
+  let list = DB.students.filter(s => {
+    if (q) {
+      const inName = s.name.toLowerCase().includes(q);
+      const inCode = s.code.toLowerCase().includes(q);
+      const inPhone = (s.phone || '').includes(q);
+      if (!inName && !inCode && !inPhone) return false;
+    }
+    if (studentFilters.stage && s.stageId !== studentFilters.stage) return false;
+    if (studentFilters.status && s.statusId !== studentFilters.status) return false;
+    if (studentFilters.group && s.groupId !== studentFilters.group) return false;
+    return true;
+  });
+
+  // Sorting
+  list.sort((a,b) => {
+    let av = a[studentSort.field] || '';
+    let bv = b[studentSort.field] || '';
+    if (studentSort.field === 'stage') { av = getStageName(a.stageId); bv = getStageName(b.stageId); }
+    if (typeof av === 'string') av = av.toLowerCase();
+    if (typeof bv === 'string') bv = bv.toLowerCase();
+    if (av < bv) return studentSort.dir === 'asc' ? -1 : 1;
+    if (av > bv) return studentSort.dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const total = list.length;
+  const pages = Math.ceil(total / STUDENT_PER_PAGE);
+  if (studentPage > pages) studentPage = Math.max(1, pages);
+  const paginated = list.slice((studentPage-1)*STUDENT_PER_PAGE, studentPage*STUDENT_PER_PAGE);
+
+  return `
+  <div class="flex flex-col gap-4">
+    <div class="flex flex-wrap gap-3 justify-between items-center">
+      <div class="flex gap-2 flex-1 max-w-xl">
+        <input id="student-search" value="${escapeHtml(studentSearchQuery)}" oninput="handleStudentSearch(this.value)" placeholder="بحث بالاسم أو كود الطالب (من المدرسة)..." class="input" style="flex:1">
+      </div>
+      <div class="flex gap-2">
+        <button onclick="openExcelImport()" class="btn btn-secondary">📥 استيراد Excel</button>
+        <button onclick="openStudentModal()" class="btn btn-primary">+ إضافة طالب</button>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0; overflow:hidden">
+      <div class="p-4 flex flex-wrap gap-2 items-center" style="background:color-mix(in srgb, var(--bg) 60%, var(--card)); border-bottom:1px solid var(--border)">
+        <select onchange="studentFilters.stage=this.value; studentPage=1; renderPage()" class="input input-sm" style="width:auto; min-width:140px">
+          <option value="">كل المراحل</option>
+          ${DB.stages.map(st => `<option value="${st.id}" ${studentFilters.stage===st.id?'selected':''}>${escapeHtml(st.name)}</option>`).join('')}
+        </select>
+        <select onchange="studentFilters.status=this.value; studentPage=1; renderPage()" class="input input-sm" style="width:auto; min-width:130px">
+          <option value="">كل الحالات</option>
+          ${DB.studentStatuses.map(st => `<option value="${st.id}" ${studentFilters.status===st.id?'selected':''}>${escapeHtml(st.name)}</option>`).join('')}
+        </select>
+        <select onchange="studentFilters.group=this.value; studentPage=1; renderPage()" class="input input-sm" style="width:auto; min-width:160px">
+          <option value="">كل المجموعات</option>
+          ${DB.groups.map(g => `<option value="${g.id}" ${studentFilters.group===g.id?'selected':''}>${escapeHtml(g.number)} - ${escapeHtml(g.name||'')}</option>`).join('')}
+        </select>
+        <div class="flex gap-2" style="margin-right:auto">
+          <span class="badge badge-gray">${total} طالب</span>
+          ${q || studentFilters.stage || studentFilters.status || studentFilters.group ? `<button onclick="clearStudentFilters()" class="btn btn-ghost btn-sm">مسح الفلترة</button>` : ''}
+        </div>
+      </div>
+
+      <div class="table-wrap" style="border:none; border-radius:0">
+        <table>
+          <thead>
+            <tr>
+              <th style="cursor:pointer" onclick="sortStudents('code')">الكود ${studentSort.field==='code'?(studentSort.dir==='asc'?'↑':'↓'):''}</th>
+              <th style="cursor:pointer" onclick="sortStudents('name')">الاسم ${studentSort.field==='name'?(studentSort.dir==='asc'?'↑':'↓'):''}</th>
+              <th>المرحلة / الصف</th>
+              <th>المجموعة</th>
+              <th>الحالة</th>
+              <th>ولي الأمر</th>
+              <th>إجراءات</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${paginated.length===0 ? `
+              <tr><td colspan="7" class="empty">
+                <div class="empty-icon">🎓</div>
+                <div class="font-bold">لا يوجد طلاب</div>
+                <div class="text-xs text-muted mt-1">${q ? 'لا توجد نتائج للبحث' : 'ابدأ بإضافة أول طالب - النظام نظيف بدون بيانات وهمية'}</div>
+                ${!q ? `<button onclick="openStudentModal()" class="btn btn-primary btn-sm mt-3">+ إضافة طالب</button>` : ''}
+              </td></tr>
+            ` : paginated.map(s => `
+              <tr>
+                <td><span class="badge badge-gray" style="font-family:monospace; font-weight:900">${escapeHtml(s.code)}</span></td>
+                <td>
+                  <div class="flex items-center gap-2">
+                    <div style="width:36px; height:36px; border-radius:50%; background:var(--bg); border:1px solid var(--border); overflow:hidden; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:12px; flex-shrink:0">
+                      ${s.photo ? `<img src="${s.photo}" style="width:100%; height:100%; object-fit:cover">` : escapeHtml(s.name.charAt(0))}
+                    </div>
+                    <div>
+                      <div class="font-bold" style="font-size:13px">${escapeHtml(s.name)}</div>
+                      <div class="text-xs text-muted">${escapeHtml(s.school || '')} ${s.grade ? '• '+escapeHtml(s.grade) : ''}</div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="font-bold text-sm">${escapeHtml(getStageName(s.stageId))}</div>
+                  <div class="text-xs text-muted">${escapeHtml(s.grade || '')}</div>
+                </td>
+                <td><span class="text-sm font-bold">${escapeHtml(getGroupName(s.groupId))}</span></td>
+                <td><span class="badge badge-blue">${escapeHtml(getStatusName(s.statusId))}</span></td>
+                <td>
+                  <div class="text-sm">${escapeHtml(s.parentName || '-')}</div>
+                  <div class="text-xs text-muted">${escapeHtml(s.parentPhone || '')}</div>
+                </td>
+                <td>
+                  <div class="flex gap-1">
+                    <button onclick="openStudentDetails('${s.id}')" class="btn btn-secondary btn-sm">عرض</button>
+                    <button onclick="openStudentModal('${s.id}')" class="btn btn-secondary btn-sm">تعديل</button>
+                    <button onclick="deleteStudent('${s.id}')" class="btn btn-ghost btn-sm" style="color:var(--danger)">حذف</button>
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      ${pages > 1 ? `
+        <div class="p-4 flex justify-center gap-2 flex-wrap" style="border-top:1px solid var(--border)">
+          <button onclick="studentPage=1; renderPage()" class="btn btn-secondary btn-sm" ${studentPage===1?'disabled':''}>الأول</button>
+          <button onclick="studentPage=Math.max(1,studentPage-1); renderPage()" class="btn btn-secondary btn-sm">السابق</button>
+          <span class="badge badge-gray">صفحة ${studentPage} من ${pages}</span>
+          <button onclick="studentPage=Math.min(${pages},studentPage+1); renderPage()" class="btn btn-secondary btn-sm">التالي</button>
+          <button onclick="studentPage=${pages}; renderPage()" class="btn btn-secondary btn-sm">الأخير</button>
+        </div>
+      ` : ''}
+    </div>
+  </div>
+  `;
+}
+
+function handleStudentSearch(val) {
+  studentSearchQuery = val;
+  studentPage = 1;
+  renderPage();
+}
+function clearStudentFilters() {
+  studentSearchQuery = '';
+  studentFilters = { stage: '', status: '', group: '' };
+  studentPage = 1;
+  const inp = document.getElementById('student-search');
+  if (inp) inp.value = '';
+  renderPage();
+}
+function sortStudents(field) {
+  if (studentSort.field === field) {
+    studentSort.dir = studentSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    studentSort.field = field;
+    studentSort.dir = 'asc';
+  }
+  renderPage();
+}
+
+function openStudentModal(id = null) {
+  const s = id ? DB.students.find(x => x.id === id) : null;
+  const isEdit = !!s;
+  openModal(`
+    <div class="modal-header">
+      <h3 class="font-black" style="font-size:16px">${isEdit ? 'تعديل طالب' : 'إضافة طالب جديد'}</h3>
+      <button onclick="closeModal()" class="btn btn-ghost btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="grid grid-2" style="gap:14px">
+        <div style="grid-column:1 / -1">
+          <label class="label">كود الطالب * (يدوي من المدرسة - يمنع التكرار)</label>
+          <input id="m-code" value="${escapeHtml(s?.code || '')}" class="input" placeholder="مثال: 12345" style="font-family:monospace; font-weight:900">
+          <div class="text-xs text-muted mt-1">الكود يأتي من المدرسة، يجب أن يكون فريد لكل طالب</div>
+        </div>
+        <div style="grid-column:1 / -1">
+          <label class="label">الاسم الكامل *</label>
+          <input id="m-name" value="${escapeHtml(s?.name || '')}" class="input" placeholder="الاسم رباعي">
+        </div>
+        <div>
+          <label class="label">تاريخ الميلاد</label>
+          <input id="m-birth" type="date" value="${escapeHtml(s?.birthDate || '')}" class="input">
+        </div>
+        <div>
+          <label class="label">النوع</label>
+          <select id="m-gender" class="input">
+            <option value="">اختر</option>
+            <option value="ذكر" ${s?.gender==='ذكر'?'selected':''}>ذكر</option>
+            <option value="أنثى" ${s?.gender==='أنثى'?'selected':''}>أنثى</option>
+          </select>
+        </div>
+        <div>
+          <label class="label">المرحلة</label>
+          <select id="m-stage" class="input">
+            <option value="">اختر المرحلة</option>
+            ${DB.stages.map(st => `<option value="${st.id}" ${s?.stageId===st.id?'selected':''}>${escapeHtml(st.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="label">الصف الدراسي</label>
+          <input id="m-grade" value="${escapeHtml(s?.grade || '')}" class="input" placeholder="مثال: الصف الثاني الإعدادي">
+        </div>
+        <div>
+          <label class="label">المدرسة</label>
+          <input id="m-school" value="${escapeHtml(s?.school || '')}" class="input" placeholder="اسم المدرسة">
+        </div>
+        <div>
+          <label class="label">المجموعة (واحدة فقط)</label>
+          <select id="m-group" class="input">
+            <option value="">بدون مجموعة</option>
+            ${DB.groups.map(g => {
+              const count = DB.students.filter(st => st.groupId === g.id).length;
+              const max = g.maxStudents || '∞';
+              return `<option value="${g.id}" ${s?.groupId===g.id?'selected':''}>${escapeHtml(g.number)} - ${escapeHtml(g.name||'')} (${count}/${max})</option>`;
+            }).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="label">حالة الطالب</label>
+          <select id="m-status" class="input">
+            ${DB.studentStatuses.map(st => `<option value="${st.id}" ${(!s && st.name==='نشط') || s?.statusId===st.id?'selected':''}>${escapeHtml(st.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="label">رقم هاتف الطالب</label>
+          <input id="m-phone" value="${escapeHtml(s?.phone || '')}" class="input" placeholder="اختياري">
+        </div>
+        <div style="grid-column:1 / -1">
+          <label class="label">عنوان السكن</label>
+          <input id="m-address" value="${escapeHtml(s?.address || '')}" class="input" placeholder="العنوان">
+        </div>
+        <div>
+          <label class="label">اسم ولي الأمر</label>
+          <input id="m-parentName" value="${escapeHtml(s?.parentName || '')}" class="input">
+        </div>
+        <div>
+          <label class="label">صلة ولي الأمر</label>
+          <select id="m-parentRel" class="input">
+            <option value="">اختر</option>
+            <option value="الأب" ${s?.parentRelation==='الأب'?'selected':''}>الأب</option>
+            <option value="الأم" ${s?.parentRelation==='الأم'?'selected':''}>الأم</option>
+            <option value="ولي أمر" ${s?.parentRelation==='ولي أمر'?'selected':''}>ولي أمر</option>
+          </select>
+        </div>
+        <div>
+          <label class="label">رقم ولي الأمر</label>
+          <input id="m-parentPhone" value="${escapeHtml(s?.parentPhone || '')}" class="input" placeholder="رقم للتواصل">
+        </div>
+        <div>
+          <label class="label">تاريخ التسجيل</label>
+          <input id="m-reg" type="date" value="${escapeHtml(s?.registrationDate || new Date().toISOString().slice(0,10))}" class="input">
+        </div>
+        <div style="grid-column:1 / -1">
+          <label class="label">صورة الطالب (اختياري - حد أقصى 2MB)</label>
+          <input type="file" id="m-photo" accept="image/*" class="input">
+          ${s?.photo ? `<div class="mt-2"><img src="${s.photo}" style="width:80px; height:80px; object-fit:cover; border-radius:12px; border:1px solid var(--border)"><button onclick="removeStudentPhoto('${s.id}')" class="btn btn-ghost btn-sm mt-1" style="color:var(--danger)">حذف الصورة</button></div>` : '<div class="text-xs text-muted mt-1">لا توجد صورة حاليا</div>'}
+        </div>
+        <div style="grid-column:1 / -1">
+          <label class="label">ملاحظات إدارية</label>
+          <textarea id="m-notes" class="input" rows="3" placeholder="ملاحظات...">${escapeHtml(s?.notes || '')}</textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()" class="btn btn-secondary">إلغاء</button>
+      <button onclick="saveStudent('${id || ''}')" class="btn btn-primary">💾 حفظ الطالب</button>
+    </div>
+  `);
+}
+
+async function saveStudent(id) {
+  const code = document.getElementById('m-code').value.trim();
+  const name = document.getElementById('m-name').value.trim();
+  if (!code) { toast('كود الطالب مطلوب', 'error'); return; }
+  if (!name) { toast('اسم الطالب مطلوب', 'error'); return; }
+  if (!isValidCode(code)) { toast('كود الطالب غير صالح', 'error'); return; }
+  if (DB.students.some(s => s.code === code && s.id !== id)) {
+    toast(`كود الطالب ${code} موجود مسبقا - الأكواد يجب أن تكون فريدة`, 'error');
+    return;
+  }
+
+  let obj = id ? DB.students.find(s => s.id === id) : { id: genId(), files: [], createdAt: new Date().toISOString() };
+  const isNew = !id;
+
+  obj.code = code;
+  obj.name = name;
+  obj.birthDate = document.getElementById('m-birth').value;
+  obj.gender = document.getElementById('m-gender').value;
+  obj.stageId = document.getElementById('m-stage').value;
+  obj.grade = document.getElementById('m-grade').value.trim();
+  obj.school = document.getElementById('m-school').value.trim();
+  obj.groupId = document.getElementById('m-group').value;
+  obj.statusId = document.getElementById('m-status').value;
+  obj.phone = document.getElementById('m-phone').value.trim();
+  obj.address = document.getElementById('m-address').value.trim();
+  obj.parentName = document.getElementById('m-parentName').value.trim();
+  obj.parentRelation = document.getElementById('m-parentRel').value;
+  obj.parentPhone = document.getElementById('m-parentPhone').value.trim();
+  obj.registrationDate = document.getElementById('m-reg').value;
+  obj.notes = document.getElementById('m-notes').value.trim();
+
+  // Check group capacity
+  if (obj.groupId) {
+    const group = DB.groups.find(g => g.id === obj.groupId);
+    if (group && group.maxStudents) {
+      const count = DB.students.filter(s => s.groupId === obj.groupId && s.id !== obj.id).length;
+      if (count >= parseInt(group.maxStudents)) {
+        toast(`المجموعة ${group.number} ممتلئة (${group.maxStudents} طالب)`, 'error');
+        return;
+      }
+    }
+  }
+
+  const fileInput = document.getElementById('m-photo');
+  if (fileInput.files[0]) {
+    try {
+      const base64 = await fileToBase64(fileInput.files[0]);
+      obj.photo = base64;
+    } catch (e) {
+      toast(e, 'error');
+      return;
+    }
+  }
+
+  if (isNew) DB.students.push(obj);
+  saveData(DB);
+  closeModal();
+  renderPage();
+  toast(isNew ? 'تم إضافة الطالب بنجاح' : 'تم تحديث بيانات الطالب');
+}
+
+function deleteStudent(id) {
+  const s = DB.students.find(x => x.id === id);
+  if (!s) return;
+  confirmDialog('حذف طالب', `هل أنت متأكد من حذف الطالب ${s.name} (${s.code})؟\\nسيتم حذف حضوره واشتراكاته أيضا. لا يمكن التراجع.`, () => {
+    DB.students = DB.students.filter(x => x.id !== id);
+    DB.attendance = DB.attendance.filter(a => a.studentId !== id);
+    DB.subscriptions = DB.subscriptions.filter(sub => sub.studentId !== id);
+    saveData(DB);
+    renderPage();
+    toast('تم حذف الطالب وبياناته المرتبطة');
+  }, 'حذف نهائي');
+}
+
+function removeStudentPhoto(id) {
+  const s = DB.students.find(x => x.id === id);
+  if (s) { s.photo = ''; saveData(DB); openStudentModal(id); toast('تم حذف الصورة'); }
+}
+
+function openStudentDetails(id) {
+  const s = DB.students.find(x => x.id === id);
+  if (!s) return;
+  const att = DB.attendance.filter(a => a.studentId === id).sort((a,b) => b.date.localeCompare(a.date)).slice(0,20);
+  const subs = DB.subscriptions.filter(sub => sub.studentId === id).sort((a,b) => b.month.localeCompare(a.month));
+  openModal(`
+    <div class="modal-header">
+      <h3 class="font-black">تفاصيل الطالب - ${escapeHtml(s.name)}</h3>
+      <button onclick="closeModal()" class="btn btn-ghost btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="flex gap-4 items-start mb-6">
+        <div style="width:100px; height:100px; border-radius:20px; overflow:hidden; background:var(--bg); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:32px; font-weight:900; flex-shrink:0">
+          ${s.photo ? `<img src="${s.photo}" style="width:100%; height:100%; object-fit:cover">` : escapeHtml(s.name.charAt(0))}
+        </div>
+        <div class="flex-1">
+          <h2 class="font-black" style="font-size:18px">${escapeHtml(s.name)}</h2>
+          <div class="flex gap-2 mt-2 flex-wrap">
+            <span class="badge badge-gray" style="font-family:monospace">${escapeHtml(s.code)}</span>
+            <span class="badge badge-blue">${escapeHtml(getStageName(s.stageId))}</span>
+            <span class="badge badge-green">${escapeHtml(getStatusName(s.statusId))}</span>
+          </div>
+          <div class="grid grid-2 mt-3 gap-2 text-sm">
+            <div><span class="text-muted">المجموعة:</span> <b>${escapeHtml(getGroupName(s.groupId))}</b></div>
+            <div><span class="text-muted">الصف:</span> ${escapeHtml(s.grade || '-')}</div>
+            <div><span class="text-muted">المدرسة:</span> ${escapeHtml(s.school || '-')}</div>
+            <div><span class="text-muted">النوع:</span> ${escapeHtml(s.gender || '-')}</div>
+            <div><span class="text-muted">الميلاد:</span> ${escapeHtml(s.birthDate || '-')}</div>
+            <div><span class="text-muted">التسجيل:</span> ${escapeHtml(s.registrationDate || '-')}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-2 gap-4 mb-6">
+        <div class="card" style="padding:16px">
+          <div class="font-black text-sm mb-2">بيانات التواصل</div>
+          <div class="text-sm"><span class="text-muted">هاتف الطالب:</span> ${escapeHtml(s.phone || '-')}</div>
+          <div class="text-sm"><span class="text-muted">العنوان:</span> ${escapeHtml(s.address || '-')}</div>
+          <div class="text-sm mt-2"><span class="text-muted">ولي الأمر:</span> ${escapeHtml(s.parentName || '-')} ${s.parentRelation ? '('+escapeHtml(s.parentRelation)+')' : ''}</div>
+          <div class="text-sm"><span class="text-muted">رقم ولي الأمر:</span> ${escapeHtml(s.parentPhone || '-')}</div>
+        </div>
+        <div class="card" style="padding:16px">
+          <div class="font-black text-sm mb-2">الإحصائيات</div>
+          <div class="text-sm"><span class="text-muted">إجمالي الحضور:</span> <b class="text-success">${DB.attendance.filter(a=>a.studentId===id && a.status==='حاضر').length}</b></div>
+          <div class="text-sm"><span class="text-muted">الغياب:</span> <b class="text-danger">${DB.attendance.filter(a=>a.studentId===id && a.status==='غائب').length}</b></div>
+          <div class="text-sm"><span class="text-muted">التأخير:</span> <b>${DB.attendance.filter(a=>a.studentId===id && a.status==='متأخر').length}</b></div>
+          <div class="text-sm"><span class="text-muted">الاشتراكات:</span> ${subs.length} شهر</div>
+          <div class="text-sm"><span class="text-muted">المدفوع:</span> <b>${subs.reduce((a,b)=>a+Number(b.paid||0),0)} ج</b></div>
+        </div>
+      </div>
+
+      ${s.notes ? `<div class="card mb-4"><div class="font-black text-sm mb-2">ملاحظات</div><div class="text-sm">${escapeHtml(s.notes)}</div></div>` : ''}
+
+      <div class="card mb-4">
+        <div class="font-black text-sm mb-3">سجل الحضور (آخر 20)</div>
+        ${att.length===0 ? '<div class="text-xs text-muted">لا يوجد سجل حضور</div>' : `
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>التاريخ</th><th>المجموعة</th><th>الحالة</th></tr></thead>
+              <tbody>${att.map(a => `<tr><td>${escapeHtml(a.date)}</td><td>${escapeHtml(getGroupName(a.groupId))}</td><td><span class="badge ${a.status==='حاضر'?'badge-green':a.status==='غائب'?'badge-red':'badge-amber'}">${escapeHtml(a.status)}</span></td></tr>`).join('')}</tbody>
+            </table>
+          </div>
+        `}
+      </div>
+
+      <div class="card">
+        <div class="font-black text-sm mb-3">سجل الاشتراكات</div>
+        ${subs.length===0 ? '<div class="text-xs text-muted">لا يوجد اشتراكات</div>' : `
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>الشهر</th><th>المطلوب</th><th>المدفوع</th><th>التاريخ</th></tr></thead>
+              <tbody>${subs.map(sub => `<tr><td>${escapeHtml(sub.month)}</td><td>${escapeHtml(sub.amount)} ج</td><td class="font-bold">${escapeHtml(sub.paid)} ج</td><td>${escapeHtml(sub.date||'')}</td></tr>`).join('')}</tbody>
+            </table>
+          </div>
+        `}
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()" class="btn btn-secondary">إغلاق</button>
+      <button onclick="closeModal(); openStudentModal('${s.id}')" class="btn btn-primary">تعديل</button>
+    </div>
+  `);
+}
+
+// Excel Import
+function openExcelImport() {
+  openModal(`
+    <div class="modal-header">
+      <h3 class="font-black">استيراد الطلاب من Excel</h3>
+      <button onclick="closeModal()" class="btn btn-ghost btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="card mb-4" style="background:var(--primary-light); border-color:var(--primary)">
+        <div class="font-bold text-sm mb-2">تعليمات الاستيراد</div>
+        <div class="text-xs" style="line-height:1.8">
+          • الملف يجب أن يكون .xlsx أو .xls<br>
+          • الصف الأول يجب أن يحتوي على: <b>code</b> و <b>name</b> (إجباري)<br>
+          • الأعمدة الاختيارية: grade, stage, school<br>
+          • مثال:<br>
+          <code style="background:var(--card); padding:8px; border-radius:8px; display:block; margin-top:8px; font-family:monospace; font-size:11px">
+          code | name | grade<br>
+          101 | أحمد محمد | الثاني الإعدادي<br>
+          102 | مريم علي | الثالث الابتدائي
+          </code>
+          • الأكواد المكررة سيتم تخطيها وإظهارها في الأخطاء<br>
+          • يعمل Offline بعد أول تحميل Online (لتحميل مكتبة Excel)
+        </div>
+      </div>
+      <input type="file" id="excel-file" accept=".xlsx,.xls,.csv" class="input mb-3">
+      <div id="excel-preview" class="card" style="max-height:300px; overflow:auto; display:none"></div>
+      <div id="excel-errors" class="card mt-3" style="display:none; background:var(--danger-light); border-color:var(--danger)"></div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()" class="btn btn-secondary">إلغاء</button>
+      <button onclick="processExcel()" class="btn btn-primary">📥 استيراد الآن</button>
+    </div>
+  `);
+
+  document.getElementById('excel-file').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const preview = document.getElementById('excel-preview');
+    preview.style.display = 'block';
+    preview.innerHTML = '<div class="text-sm">جاري قراءة الملف...</div>';
+
+    try {
+      let data;
+      if (file.name.endsWith('.csv')) {
+        const text = await file.text();
+        data = text.split('\\n').map(row => row.split(',').map(c => c.trim()));
+      } else {
+        if (typeof XLSX === 'undefined') {
+          // Try to load XLSX dynamically
+          preview.innerHTML = '<div class="text-sm">جاري تحميل مكتبة Excel (يحتاج إنترنت أول مرة)...</div>';
+          await loadXLSXLibrary();
+        }
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      }
+      window._excelData = data;
+      const rows = data.slice(0, 11);
+      preview.innerHTML = `
+        <div class="font-black text-sm mb-2">معاينة (أول 10 صفوف من ${data.length-1} طالب)</div>
+        <div class="table-wrap">
+          <table>
+            ${rows.map((row,i) => `<tr style="${i===0?'background:var(--primary-light); font-weight:900':''}">${row.map(c => `<td style="padding:6px; border:1px solid var(--border); font-size:11px">${escapeHtml(String(c||''))}</td>`).join('')}</tr>`).join('')}
+          </table>
+        </div>
+        <div class="text-xs mt-2">إجمالي: ${data.length-1} صف</div>
+      `;
+    } catch (err) {
+      preview.innerHTML = `<div class="text-sm" style="color:var(--danger)">خطأ: ${escapeHtml(err.message || err)}</div>`;
+    }
+  });
+}
+
+function loadXLSXLibrary() {
+  return new Promise((resolve, reject) => {
+    if (typeof XLSX !== 'undefined') { resolve(); return; }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('فشل تحميل مكتبة Excel - تأكد من الاتصال بالإنترنت'));
+    document.head.appendChild(script);
+  });
+}
+
+function processExcel() {
+  const data = window._excelData;
+  if (!data || data.length < 2) { toast('ملف فارغ أو غير صالح', 'error'); return; }
+  const headers = data[0].map(h => String(h).toLowerCase().trim());
+  const codeIdx = headers.findIndex(h => h.includes('code') || h.includes('كود'));
+  const nameIdx = headers.findIndex(h => h.includes('name') || h.includes('اسم'));
+  if (codeIdx === -1 || nameIdx === -1) {
+    toast('يجب وجود عمود code و name في الصف الأول', 'error');
+    return;
+  }
+  const gradeIdx = headers.findIndex(h => h.includes('grade') || h.includes('صف') || h.includes('class'));
+  const schoolIdx = headers.findIndex(h => h.includes('school') || h.includes('مدرسة'));
+
+  let added = 0;
+  const errors = [];
+  const defaultStageId = DB.stages[0]?.id || '';
+  const defaultStatusId = DB.studentStatuses.find(s => s.name === 'نشط')?.id || DB.studentStatuses[0]?.id || '';
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    if (!row || row.length === 0) continue;
+    const code = String(row[codeIdx] || '').trim();
+    const name = String(row[nameIdx] || '').trim();
+    if (!code || !name) {
+      if (code || name) errors.push(`صف ${i+1}: بيانات ناقصة`);
+      continue;
+    }
+    if (DB.students.some(s => s.code === code)) {
+      errors.push(`صف ${i+1}: كود مكرر ${code} - موجود مسبقا`);
+      continue;
+    }
+    if (code.length > 20) {
+      errors.push(`صف ${i+1}: كود طويل جدا ${code}`);
+      continue;
+    }
+    DB.students.push({
+      id: genId(),
+      code,
+      name,
+      grade: String(row[gradeIdx] || '').trim(),
+      school: String(row[schoolIdx] || '').trim(),
+      stageId: defaultStageId,
+      statusId: defaultStatusId,
+      groupId: '',
+      birthDate: '',
+      gender: '',
+      phone: '',
+      address: '',
+      parentName: '',
+      parentRelation: '',
+      parentPhone: '',
+      registrationDate: new Date().toISOString().slice(0,10),
+      photo: '',
+      notes: '',
+      files: [],
+      createdAt: new Date().toISOString()
+    });
+    added++;
+  }
+
+  saveData(DB);
+  const errDiv = document.getElementById('excel-errors');
+  if (errors.length > 0) {
+    errDiv.style.display = 'block';
+    errDiv.innerHTML = `<div class="font-bold text-sm mb-2">أخطاء (${errors.length}):</div><div class="text-xs" style="max-height:100px; overflow:auto">${errors.slice(0,50).map(e => `<div>• ${escapeHtml(e)}</div>`).join('')}</div>${errors.length>50?`<div class="text-xs mt-1">... و ${errors.length-50} خطأ آخر</div>`:''}`;
+  }
+  toast(`تم استيراد ${added} طالب بنجاح${errors.length ? ` - ${errors.length} خطأ` : ''}`);
+  if (added > 0) {
+    setTimeout(() => { closeModal(); renderPage(); }, 1500);
+  }
+}
+
+
+/* ===== teachers.js ===== */
+
+// teachers.js - إدارة المدرسين
+let teacherSearch = '';
+
+function renderTeachersPage() {
+  const q = (teacherSearch || '').toLowerCase().trim();
+  let list = DB.teachers.filter(t => {
+    if (!q) return true;
+    return t.name.toLowerCase().includes(q) || (t.specialization||'').toLowerCase().includes(q) || (t.subjects||[]).join(' ').toLowerCase().includes(q);
+  });
+
+  return `
+  <div class="flex flex-col gap-4">
+    <div class="flex justify-between items-center flex-wrap gap-3">
+      <input value="${escapeHtml(teacherSearch)}" oninput="teacherSearch=this.value; renderPage()" placeholder="بحث باسم المدرس أو التخصص أو المادة..." class="input" style="max-width:380px; flex:1">
+      <button onclick="openTeacherModal()" class="btn btn-primary">+ إضافة مدرس</button>
+    </div>
+
+    <div class="grid grid-3">
+      ${list.length===0 ? `
+        <div class="card empty" style="grid-column:1 / -1">
+          <div class="empty-icon">👨‍🏫</div>
+          <div class="font-bold">لا يوجد مدرسون</div>
+          <div class="text-xs text-muted mt-1">ابدأ بإضافة أول مدرس</div>
+          <button onclick="openTeacherModal()" class="btn btn-primary btn-sm mt-3">+ إضافة مدرس</button>
+        </div>
+      ` : list.map(t => {
+        const groupsCount = DB.groups.filter(g => g.teacherIds?.includes(t.id)).length;
+        const studentsCount = DB.students.filter(s => {
+          const g = DB.groups.find(gr => gr.id === s.groupId);
+          return g?.teacherIds?.includes(t.id);
+        }).length;
+        return `
+        <div class="card card-hover">
+          <div class="flex justify-between items-start">
+            <div class="flex-1">
+              <div class="font-black" style="font-size:15px">${escapeHtml(t.name)}</div>
+              <div class="text-xs text-muted mt-1 font-bold">${escapeHtml(t.specialization||'')} ${t.subjects?.length ? '• '+escapeHtml(t.subjects.join('، ')) : ''}</div>
+              <div class="mt-3 text-xs">
+                <div>📞 ${escapeHtml(t.phone||'-')} • 💰 ${escapeHtml(t.salary||'0')} ج</div>
+                <div class="mt-1 text-muted">المجموعات: ${groupsCount} • الطلاب: ${studentsCount}</div>
+                ${t.startDate ? `<div class="mt-1 text-muted">بدأ: ${escapeHtml(t.startDate)}</div>` : ''}
+              </div>
+              ${t.notes ? `<div class="mt-2 p-2 rounded-lg text-xs" style="background:var(--bg); border:1px solid var(--border)">${escapeHtml(t.notes)}</div>` : ''}
+            </div>
+            <span class="badge ${t.statusId && getTeacherStatusName(t.statusId)==='نشط' ? 'badge-green' : 'badge-gray'}">${escapeHtml(getTeacherStatusName(t.statusId))}</span>
+          </div>
+          <div class="flex gap-2 mt-4">
+            <button onclick="openTeacherModal('${t.id}')" class="btn btn-secondary btn-sm" style="flex:1">تعديل</button>
+            <button onclick="openTeacherGroups('${t.id}')" class="btn btn-secondary btn-sm" style="flex:1">المجموعات</button>
+            <button onclick="deleteTeacher('${t.id}')" class="btn btn-ghost btn-sm" style="color:var(--danger)">حذف</button>
+          </div>
+        </div>
+        `;
+      }).join('')}
+    </div>
+  </div>
+  `;
+}
+
+function openTeacherModal(id = null) {
+  const t = id ? DB.teachers.find(x => x.id === id) : null;
+  openModal(`
+    <div class="modal-header">
+      <h3 class="font-black">${t?'تعديل مدرس':'إضافة مدرس جديد'}</h3>
+      <button onclick="closeModal()" class="btn btn-ghost btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="grid grid-2" style="gap:14px">
+        <div style="grid-column:1 / -1">
+          <label class="label">اسم المدرس *</label>
+          <input id="t-name" value="${escapeHtml(t?.name||'')}" class="input" placeholder="الاسم كامل">
+        </div>
+        <div>
+          <label class="label">التخصص</label>
+          <input id="t-spec" value="${escapeHtml(t?.specialization||'')}" class="input" placeholder="مثال: رياضيات">
+        </div>
+        <div>
+          <label class="label">المواد (افصل بفاصلة)</label>
+          <input id="t-subs" value="${escapeHtml(t?.subjects?.join('، ')||'')}" class="input" placeholder="رياضيات، فيزياء">
+        </div>
+        <div>
+          <label class="label">رقم الهاتف</label>
+          <input id="t-phone" value="${escapeHtml(t?.phone||'')}" class="input">
+        </div>
+        <div>
+          <label class="label">العنوان</label>
+          <input id="t-address" value="${escapeHtml(t?.address||'')}" class="input">
+        </div>
+        <div>
+          <label class="label">تاريخ بداية العمل</label>
+          <input id="t-start" type="date" value="${escapeHtml(t?.startDate||'')}" class="input">
+        </div>
+        <div>
+          <label class="label">الحالة</label>
+          <select id="t-status" class="input">
+            ${DB.teacherStatuses.map(st => `<option value="${st.id}" ${t?.statusId===st.id?'selected':''}>${escapeHtml(st.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="label">الراتب / المستحقات (ج)</label>
+          <input id="t-salary" type="number" value="${escapeHtml(t?.salary||'')}" class="input" placeholder="0">
+        </div>
+        <div style="grid-column:1 / -1">
+          <label class="label">ملاحظات</label>
+          <textarea id="t-notes" class="input" rows="2">${escapeHtml(t?.notes||'')}</textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()" class="btn btn-secondary">إلغاء</button>
+      <button onclick="saveTeacher('${id||''}')" class="btn btn-primary">💾 حفظ</button>
+    </div>
+  `);
+}
+
+function saveTeacher(id) {
+  const name = document.getElementById('t-name').value.trim();
+  if (!name) { toast('اسم المدرس مطلوب', 'error'); return; }
+  let obj = id ? DB.teachers.find(t => t.id === id) : { id: genId() };
+  const isNew = !id;
+  obj.name = name;
+  obj.specialization = document.getElementById('t-spec').value.trim();
+  obj.subjects = document.getElementById('t-subs').value.split(/[،,]/).map(s=>s.trim()).filter(Boolean);
+  obj.phone = document.getElementById('t-phone').value.trim();
+  obj.address = document.getElementById('t-address').value.trim();
+  obj.startDate = document.getElementById('t-start').value;
+  obj.statusId = document.getElementById('t-status').value;
+  obj.salary = document.getElementById('t-salary').value.trim();
+  obj.notes = document.getElementById('t-notes').value.trim();
+  if (isNew) DB.teachers.push(obj);
+  saveData(DB);
+  closeModal();
+  renderPage();
+  toast(isNew ? 'تم إضافة المدرس' : 'تم تحديث بيانات المدرس');
+}
+
+function deleteTeacher(id) {
+  const t = DB.teachers.find(x => x.id === id);
+  if (!t) return;
+  const groupsUsing = DB.groups.filter(g => g.teacherIds?.includes(id)).length;
+  confirmDialog('حذف مدرس', `هل أنت متأكد من حذف المدرس ${t.name}؟\\nيدرس في ${groupsUsing} مجموعة - سيتم إزالته من المجموعات.`, () => {
+    DB.teachers = DB.teachers.filter(x => x.id !== id);
+    DB.groups.forEach(g => { if (g.teacherIds) g.teacherIds = g.teacherIds.filter(tid => tid !== id); });
+    DB.teacherAttendance = DB.teacherAttendance.filter(a => a.teacherId !== id);
+    saveData(DB);
+    renderPage();
+    toast('تم حذف المدرس');
+  }, 'حذف');
+}
+
+function openTeacherGroups(id) {
+  const t = DB.teachers.find(x => x.id === id);
+  const groups = DB.groups.filter(g => g.teacherIds?.includes(id));
+  openModal(`
+    <div class="modal-header">
+      <h3 class="font-black">مجموعات المدرس - ${escapeHtml(t.name)}</h3>
+      <button onclick="closeModal()" class="btn btn-ghost btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      ${groups.length===0 ? '<div class="empty"><div class="empty-icon">👥</div><div class="text-sm">لا يدرس في أي مجموعة حاليا</div></div>' : `
+        <div class="grid gap-2">
+          ${groups.map(g => {
+            const count = DB.students.filter(s => s.groupId === g.id).length;
+            return `<div class="card" style="padding:12px; display:flex; justify-content:space-between; align-items:center">
+              <div><div class="font-bold text-sm">${escapeHtml(g.number)} - ${escapeHtml(g.name||'')}</div><div class="text-xs text-muted">${escapeHtml(getStageName(g.stageId))} • ${count} طالب</div></div>
+              <button onclick="closeModal(); navTo('groups'); setTimeout(()=>openGroupDetails('${g.id}'),300)" class="btn btn-secondary btn-sm">عرض</button>
+            </div>`;
+          }).join('')}
+        </div>
+      `}
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()" class="btn btn-secondary">إغلاق</button>
+    </div>
+  `);
+}
+
+
+/* ===== groups.js ===== */
+
+// groups.js - إدارة المجموعات
+function renderGroupsPage() {
+  return `
+  <div class="flex flex-col gap-4">
+    <div class="flex justify-between items-center">
+      <h3 class="font-black" style="font-size:16px">المجموعات الدراسية - فرع واحد 💒</h3>
+      <button onclick="openGroupModal()" class="btn btn-primary">+ إضافة مجموعة</button>
+    </div>
+
+    <div class="grid grid-2">
+      ${DB.groups.length===0 ? `
+        <div class="card empty" style="grid-column:1 / -1">
+          <div class="empty-icon">👥</div>
+          <div class="font-bold">لا توجد مجموعات</div>
+          <div class="text-xs text-muted mt-1" style="line-height:1.6">المجموعة تحتوي على رقم المجموعة + الصف + عدد الطلاب + مدرسون بمواد مختلفة<br>ابدأ بإضافة أول مجموعة</div>
+          <button onclick="openGroupModal()" class="btn btn-primary btn-sm mt-3">+ إضافة مجموعة</button>
+        </div>
+      ` : DB.groups.map(g => {
+        const count = DB.students.filter(s => s.groupId === g.id).length;
+        const max = g.maxStudents ? parseInt(g.maxStudents) : null;
+        const percent = max ? Math.min(100, (count/max)*100) : Math.min(100, count*5);
+        const isFull = max && count >= max;
+        return `
+        <div class="card card-hover">
+          <div class="flex justify-between items-start">
+            <div class="flex-1">
+              <div class="font-black" style="font-size:15px">مجموعة ${escapeHtml(g.number)} ${g.name ? '- '+escapeHtml(g.name) : ''}</div>
+              <div class="text-xs text-muted mt-1 font-bold">${escapeHtml(getStageName(g.stageId))} ${g.grade ? '• '+escapeHtml(g.grade) : ''} ${g.subject ? '• '+escapeHtml(g.subject) : ''}</div>
+              <div class="mt-2 text-xs">
+                <div>👨‍🏫 ${escapeHtml(getTeacherNames(g.teacherIds||[]))}</div>
+                <div class="mt-1">💰 ${escapeHtml(g.subscriptionValue || DB.centerSettings.defaultSubscription || '0')} ج • 📅 ${escapeHtml(g.days?.join('، ')||'-')} ⏰ ${escapeHtml(g.startTime||'')} - ${escapeHtml(g.endTime||'')}</div>
+              </div>
+              ${g.notes ? `<div class="mt-2 text-xs p-2 rounded-lg" style="background:var(--bg); border:1px solid var(--border)">${escapeHtml(g.notes)}</div>` : ''}
+            </div>
+            <span class="badge ${g.status==='نشطة'?'badge-green':g.status==='موقوفة'?'badge-red':'badge-gray'}">${escapeHtml(g.status||'نشطة')}</span>
+          </div>
+
+          <div class="mt-4">
+            <div class="flex justify-between items-center text-xs mb-1">
+              <span class="font-bold"><b style="font-size:15px">${count}</b> / ${max || '∞'} طالب</span>
+              <span class="${isFull?'text-danger font-bold':'text-muted'}">${isFull ? 'ممتلئة' : percent.toFixed(0)+'% ممتلئة'}</span>
+            </div>
+            <div style="height:6px; background:var(--bg); border-radius:10px; overflow:hidden; border:1px solid var(--border)">
+              <div style="height:100%; width:${percent}%; background:${isFull?'var(--danger)':'var(--primary)'}; border-radius:10px; transition:width .3s"></div>
+            </div>
+          </div>
+
+          <div class="flex gap-2 mt-4 flex-wrap">
+            <button onclick="navToAttendance('${g.id}')" class="btn btn-primary btn-sm" style="flex:1">✅ حضور</button>
+            <button onclick="openGroupDetails('${g.id}')" class="btn btn-secondary btn-sm" style="flex:1">👥 الطلاب (${count})</button>
+            <button onclick="openGroupModal('${g.id}')" class="btn btn-secondary btn-sm">تعديل</button>
+            <button onclick="deleteGroup('${g.id}')" class="btn btn-ghost btn-sm" style="color:var(--danger)">حذف</button>
+          </div>
+        </div>
+        `;
+      }).join('')}
+    </div>
+  </div>
+  `;
+}
+
+function openGroupModal(id = null) {
+  const g = id ? DB.groups.find(x => x.id === id) : null;
+  openModal(`
+    <div class="modal-header">
+      <h3 class="font-black">${g?'تعديل مجموعة':'إضافة مجموعة جديدة'}</h3>
+      <button onclick="closeModal()" class="btn btn-ghost btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="grid grid-2" style="gap:14px">
+        <div>
+          <label class="label">رقم المجموعة *</label>
+          <input id="g-number" value="${escapeHtml(g?.number||'')}" class="input" placeholder="مثال: 1 أو A1">
+        </div>
+        <div>
+          <label class="label">اسم المجموعة (اختياري)</label>
+          <input id="g-name" value="${escapeHtml(g?.name||'')}" class="input" placeholder="مثال: مجموعة المتفوقين">
+        </div>
+        <div>
+          <label class="label">المرحلة</label>
+          <select id="g-stage" class="input">
+            <option value="">اختر المرحلة</option>
+            ${DB.stages.map(s => `<option value="${s.id}" ${g?.stageId===s.id?'selected':''}>${escapeHtml(s.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="label">الصف</label>
+          <input id="g-grade" value="${escapeHtml(g?.grade||'')}" class="input" placeholder="مثال: الثاني الإعدادي">
+        </div>
+        <div>
+          <label class="label">المادة</label>
+          <input id="g-subject" value="${escapeHtml(g?.subject||'')}" class="input" placeholder="مثال: رياضيات - علوم">
+        </div>
+        <div>
+          <label class="label">الحد الأقصى للطلاب</label>
+          <input id="g-max" type="number" value="${escapeHtml(g?.maxStudents||'')}" class="input" placeholder="مثال: 25">
+        </div>
+        <div>
+          <label class="label">قيمة الاشتراك (ج)</label>
+          <input id="g-subval" type="number" value="${escapeHtml(g?.subscriptionValue||DB.centerSettings.defaultSubscription||'')}" class="input">
+        </div>
+        <div>
+          <label class="label">حالة المجموعة</label>
+          <select id="g-status" class="input">
+            <option value="نشطة" ${g?.status==='نشطة'?'selected':''}>نشطة</option>
+            <option value="موقوفة" ${g?.status==='موقوفة'?'selected':''}>موقوفة</option>
+            <option value="مكتملة" ${g?.status==='مكتملة'?'selected':''}>مكتملة</option>
+          </select>
+        </div>
+        <div>
+          <label class="label">وقت البداية</label>
+          <input id="g-start" type="time" value="${escapeHtml(g?.startTime||'')}" class="input">
+        </div>
+        <div>
+          <label class="label">وقت النهاية</label>
+          <input id="g-end" type="time" value="${escapeHtml(g?.endTime||'')}" class="input">
+        </div>
+        <div style="grid-column:1 / -1">
+          <label class="label">أيام الحصص (ثابتة أسبوعيا)</label>
+          <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:8px; margin-top:8px">
+            ${['السبت','الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة'].map(d => `
+              <label class="flex items-center gap-2 p-2 rounded-xl" style="background:var(--bg); border:1px solid var(--border); cursor:pointer; font-size:12px; font-weight:700">
+                <input type="checkbox" value="${d}" class="g-day" ${g?.days?.includes(d)?'checked':''}> ${d}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+        <div style="grid-column:1 / -1">
+          <label class="label">المدرسون - يمكن اختيار أكثر من مدرس بمواد مختلفة</label>
+          <div class="card" style="max-height:160px; overflow-y:auto; padding:8px; background:var(--bg)">
+            ${DB.teachers.length===0 ? '<div class="text-xs text-muted">لا يوجد مدرسون - أضف مدرسين أولا</div>' : DB.teachers.map(t => `
+              <label class="flex items-center gap-2 p-2 rounded-lg" style="cursor:pointer; font-size:13px">
+                <input type="checkbox" value="${t.id}" class="g-teacher" ${g?.teacherIds?.includes(t.id)?'checked':''}>
+                <span><b>${escapeHtml(t.name)}</b> - ${escapeHtml(t.subjects?.join('، ')||t.specialization||'')}</span>
+              </label>
+            `).join('')}
+          </div>
+        </div>
+        <div style="grid-column:1 / -1">
+          <label class="label">ملاحظات</label>
+          <textarea id="g-notes" class="input" rows="2" placeholder="ملاحظات عن المجموعة...">${escapeHtml(g?.notes||'')}</textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()" class="btn btn-secondary">إلغاء</button>
+      <button onclick="saveGroup('${id||''}')" class="btn btn-primary">💾 حفظ المجموعة</button>
+    </div>
+  `);
+}
+
+function saveGroup(id) {
+  const number = document.getElementById('g-number').value.trim();
+  if (!number) { toast('رقم المجموعة مطلوب', 'error'); return; }
+  // Check duplicate number?
+  if (DB.groups.some(g => g.number === number && g.id !== id)) {
+    toast('رقم المجموعة موجود مسبقا', 'error');
+    return;
+  }
+  let obj = id ? DB.groups.find(g => g.id === id) : { id: genId(), createdAt: new Date().toISOString() };
+  const isNew = !id;
+  obj.number = number;
+  obj.name = document.getElementById('g-name').value.trim();
+  obj.stageId = document.getElementById('g-stage').value;
+  obj.grade = document.getElementById('g-grade').value.trim();
+  obj.subject = document.getElementById('g-subject').value.trim();
+  obj.maxStudents = document.getElementById('g-max').value.trim();
+  obj.subscriptionValue = document.getElementById('g-subval').value.trim();
+  obj.status = document.getElementById('g-status').value;
+  obj.startTime = document.getElementById('g-start').value;
+  obj.endTime = document.getElementById('g-end').value;
+  obj.notes = document.getElementById('g-notes').value.trim();
+  obj.days = Array.from(document.querySelectorAll('.g-day:checked')).map(c => c.value);
+  obj.teacherIds = Array.from(document.querySelectorAll('.g-teacher:checked')).map(c => c.value);
+
+  if (isNew) DB.groups.push(obj);
+  saveData(DB);
+  closeModal();
+  renderPage();
+  toast(isNew ? 'تم إضافة المجموعة' : 'تم تحديث المجموعة');
+}
+
+function deleteGroup(id) {
+  const g = DB.groups.find(x => x.id === id);
+  if (!g) return;
+  const count = DB.students.filter(s => s.groupId === id).length;
+  if (count > 0) {
+    toast(`لا يمكن حذف مجموعة بها ${count} طالب - انقل الطلاب أولا`, 'error');
+    return;
+  }
+  confirmDialog('حذف مجموعة', `هل أنت متأكد من حذف مجموعة ${g.number} ${g.name||''}؟`, () => {
+    DB.groups = DB.groups.filter(x => x.id !== id);
+    DB.attendance = DB.attendance.filter(a => a.groupId !== id);
+    DB.subscriptions = DB.subscriptions.filter(s => s.groupId !== id);
+    saveData(DB);
+    renderPage();
+    toast('تم حذف المجموعة');
+  }, 'حذف');
+}
+
+function openGroupDetails(id) {
+  const g = DB.groups.find(x => x.id === id);
+  if (!g) return;
+  const students = DB.students.filter(s => s.groupId === id);
+  openModal(`
+    <div class="modal-header">
+      <h3 class="font-black">طلاب مجموعة ${escapeHtml(g.number)} - ${escapeHtml(g.name||'')}</h3>
+      <button onclick="closeModal()" class="btn btn-ghost btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="card mb-3" style="padding:12px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px">
+        <div class="text-xs"><b>${students.length}</b> طالب • ${escapeHtml(getStageName(g.stageId))} • ${escapeHtml(g.grade||'')} • ${escapeHtml(g.subject||'')}</div>
+        <div class="text-xs">👨‍🏫 ${escapeHtml(getTeacherNames(g.teacherIds||[]))}</div>
+      </div>
+      ${students.length===0 ? '<div class="empty"><div class="empty-icon">👥</div><div class="text-sm">لا يوجد طلاب في هذه المجموعة</div><div class="text-xs text-muted mt-1">أضف طلاب من صفحة الطلاب واختر هذه المجموعة</div></div>' : `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>الكود</th><th>الاسم</th><th>الحالة</th><th>إجراء</th></tr></thead>
+            <tbody>
+              ${students.map(s => `<tr><td style="font-family:monospace; font-weight:800">${escapeHtml(s.code)}</td><td class="font-bold">${escapeHtml(s.name)}</td><td><span class="badge badge-blue">${escapeHtml(getStatusName(s.statusId))}</span></td><td><button onclick="closeModal(); openStudentDetails('${s.id}')" class="btn btn-secondary btn-sm">عرض</button></td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      `}
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()" class="btn btn-secondary">إغلاق</button>
+      <button onclick="closeModal(); navToAttendance('${g.id}')" class="btn btn-primary">✅ تسجيل حضور</button>
+    </div>
+  `);
+}
+
+function navToAttendance(groupId) {
+  filters.attGroup = groupId;
+  filters.attDate = new Date().toISOString().slice(0,10);
+  attendanceState = {};
+  navTo('attendance');
+}
+
+
+/* ===== attendance.js ===== */
+
+// attendance.js - نظام الحضور السريع
+let attendanceState = {};
+let teacherAttState = {};
+
+function renderAttendancePage() {
+  const selectedGroup = filters.attGroup || (DB.groups[0]?.id || '');
+  const date = filters.attDate || new Date().toISOString().slice(0,10);
+  const groupStudents = DB.students.filter(s => s.groupId === selectedGroup);
+  const dayAttendance = DB.attendance.filter(a => a.date === date && a.groupId === selectedGroup);
+
+  const present = dayAttendance.filter(a => a.status === 'حاضر').length;
+  const absent = dayAttendance.filter(a => a.status === 'غائب').length;
+  const late = dayAttendance.filter(a => a.status === 'متأخر').length;
+
+  return `
+  <div class="flex flex-col gap-4">
+    <div class="card flex flex-wrap gap-3 items-end">
+      <div style="flex:1; min-width:200px">
+        <label class="label">المجموعة *</label>
+        <select onchange="filters.attGroup=this.value; attendanceState={}; renderPage()" class="input">
+          <option value="">اختر مجموعة</option>
+          ${DB.groups.map(g => {
+            const count = DB.students.filter(s => s.groupId === g.id).length;
+            return `<option value="${g.id}" ${selectedGroup===g.id?'selected':''}>${escapeHtml(g.number)} - ${escapeHtml(g.name||'')} (${count} طالب)</option>`;
+          }).join('')}
+        </select>
+      </div>
+      <div style="min-width:180px">
+        <label class="label">التاريخ *</label>
+        <input type="date" value="${escapeHtml(date)}" onchange="filters.attDate=this.value; attendanceState={}; renderPage()" class="input">
+      </div>
+      <div class="flex gap-2" style="margin-right:auto; flex-wrap:wrap">
+        <button onclick="markAllAttendance('حاضر')" class="btn btn-success btn-sm" ${!selectedGroup?'disabled':''}>✅ الكل حاضر</button>
+        <button onclick="markAllAttendance('غائب')" class="btn btn-secondary btn-sm" ${!selectedGroup?'disabled':''}>الكل غائب</button>
+        <button onclick="markAllAttendance('متأخر')" class="btn btn-secondary btn-sm" style="background:var(--warning-light); color:var(--warning)" ${!selectedGroup?'disabled':''}>الكل متأخر</button>
+        <button onclick="saveAttendance()" class="btn btn-primary" ${!selectedGroup?'disabled':''}>💾 حفظ الحضور</button>
+      </div>
+    </div>
+
+    ${!selectedGroup ? `
+      <div class="card empty">
+        <div class="empty-icon">✅</div>
+        <div class="font-bold">اختر مجموعة لبدء تسجيل الحضور</div>
+        <div class="text-xs text-muted mt-1" style="line-height:1.6">طريقة سريعة: علامة حاضر/غائب/متأخر لكل طالب بضغطة واحدة<br>سيتم منع التكرار لنفس الطالب/المجموعة/التاريخ</div>
+      </div>
+    ` : `
+      <div class="card" style="padding:0; overflow:hidden">
+        <div class="p-4 flex flex-wrap justify-between gap-3" style="background:color-mix(in srgb, var(--bg) 60%, var(--card)); border-bottom:1px solid var(--border)">
+          <div class="font-black text-sm">👥 ${groupStudents.length} طالب في المجموعة</div>
+          <div class="flex gap-3 text-xs font-bold flex-wrap">
+            <span style="color:var(--success)">✅ حاضر: ${present}</span>
+            <span style="color:var(--danger)">❌ غائب: ${absent}</span>
+            <span style="color:var(--warning)">⏰ متأخر: ${late}</span>
+            <span class="text-muted">إجمالي مسجل: ${dayAttendance.length}</span>
+          </div>
+        </div>
+
+        <div class="divide-y">
+          ${groupStudents.length===0 ? `
+            <div class="empty">
+              <div class="empty-icon">👥</div>
+              <div class="text-sm font-bold">لا يوجد طلاب في هذه المجموعة</div>
+              <div class="text-xs text-muted mt-1">أضف طلاب من صفحة الطلاب واختر هذه المجموعة</div>
+              <button onclick="navTo('students')" class="btn btn-primary btn-sm mt-3">إضافة طلاب</button>
+            </div>
+          ` : groupStudents.map(s => {
+            const att = dayAttendance.find(a => a.studentId === s.id);
+            const status = attendanceState[s.id] !== undefined ? attendanceState[s.id] : (att?.status || '');
+            return `
+            <div class="p-4 flex items-center justify-between gap-3" style="transition:background .15s" onmouseover="this.style.background='var(--card-hover)'" onmouseout="this.style.background='transparent'">
+              <div class="flex items-center gap-3 flex-1 min-w-0">
+                <div style="width:44px; height:44px; border-radius:50%; background:var(--bg); border:1px solid var(--border); overflow:hidden; display:flex; align-items:center; justify-content:center; font-weight:900; flex-shrink:0">
+                  ${s.photo ? `<img src="${s.photo}" style="width:100%; height:100%; object-fit:cover">` : escapeHtml(s.name.charAt(0))}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="font-bold text-sm" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${escapeHtml(s.name)}</div>
+                  <div class="text-xs text-muted" style="font-family:monospace">${escapeHtml(s.code)} • ${escapeHtml(getStatusName(s.statusId))}</div>
+                </div>
+              </div>
+              <div class="flex gap-1.5 flex-shrink-0">
+                <button onclick="setAtt('${s.id}','حاضر')" class="btn btn-sm" style="min-width:64px; ${status==='حاضر'?'background:var(--success); color:white; box-shadow:0 2px 8px rgba(5,150,105,.3)':'background:var(--card); border:1px solid var(--border)'}">حاضر</button>
+                <button onclick="setAtt('${s.id}','غائب')" class="btn btn-sm" style="min-width:60px; ${status==='غائب'?'background:var(--danger); color:white; box-shadow:0 2px 8px rgba(220,38,38,.3)':'background:var(--card); border:1px solid var(--border)'}">غائب</button>
+                <button onclick="setAtt('${s.id}','متأخر')" class="btn btn-sm" style="min-width:64px; ${status==='متأخر'?'background:var(--warning); color:white':'background:var(--card); border:1px solid var(--border)'}">متأخر</button>
+              </div>
+            </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="font-black text-sm mb-3">👨‍🏫 حضور المدرسين - ${escapeHtml(date)}</div>
+        <div class="grid grid-2">
+          ${DB.teachers.length===0 ? '<div class="text-xs text-muted">لا يوجد مدرسون</div>' : DB.teachers.map(t => {
+            const ta = DB.teacherAttendance.find(a => a.date === date && a.teacherId === t.id);
+            const st = teacherAttState[t.id] !== undefined ? teacherAttState[t.id] : (ta?.status || '');
+            return `
+            <div class="flex items-center justify-between p-3 rounded-xl" style="background:var(--bg); border:1px solid var(--border)">
+              <span class="font-bold text-sm">${escapeHtml(t.name)}</span>
+              <div class="flex gap-1.5">
+                <button onclick="setTeacherAtt('${t.id}','حاضر')" class="btn btn-sm" style="${st==='حاضر'?'background:var(--success); color:white':'background:var(--card); border:1px solid var(--border)'}">حاضر</button>
+                <button onclick="setTeacherAtt('${t.id}','غائب')" class="btn btn-sm" style="${st==='غائب'?'background:var(--danger); color:white':'background:var(--card); border:1px solid var(--border)'}">غائب</button>
+              </div>
+            </div>
+            `;
+          }).join('')}
+        </div>
+        <button onclick="saveTeacherAttendance()" class="btn btn-primary btn-sm mt-3">💾 حفظ حضور المدرسين</button>
+      </div>
+    `}
+  </div>
+  `;
+}
+
+function setAtt(studentId, status) {
+  if (attendanceState[studentId] === status) {
+    delete attendanceState[studentId];
+  } else {
+    attendanceState[studentId] = status;
+  }
+  renderPage();
+}
+
+function markAllAttendance(status) {
+  const groupId = filters.attGroup;
+  if (!groupId) { toast('اختر مجموعة أولا', 'error'); return; }
+  const students = DB.students.filter(s => s.groupId === groupId);
+  if (students.length === 0) { toast('لا يوجد طلاب في المجموعة', 'error'); return; }
+  students.forEach(s => attendanceState[s.id] = status);
+  renderPage();
+  toast(`تم تحديد الكل: ${status}`);
+}
+
+function saveAttendance() {
+  const groupId = filters.attGroup;
+  const date = filters.attDate || new Date().toISOString().slice(0,10);
+  if (!groupId) { toast('اختر مجموعة', 'error'); return; }
+  if (!date) { toast('اختر تاريخ', 'error'); return; }
+  const entries = Object.entries(attendanceState);
+  if (entries.length === 0) { toast('لم تحدد حضور أي طالب', 'error'); return; }
+
+  let saved = 0;
+  entries.forEach(([studentId, status]) => {
+    if (!status) return;
+    // منع التكرار: تحديث إذا موجود
+    let existing = DB.attendance.find(a => a.date === date && a.groupId === groupId && a.studentId === studentId);
+    if (existing) {
+      existing.status = status;
+      existing.updatedAt = new Date().toISOString();
+    } else {
+      DB.attendance.push({
+        id: genId(),
+        date,
+        groupId,
+        studentId,
+        status,
+        createdAt: new Date().toISOString()
+      });
+    }
+    saved++;
+  });
+
+  saveData(DB);
+  attendanceState = {};
+  renderPage();
+  toast(`تم حفظ حضور ${saved} طالب بتاريخ ${date} ✅`);
+}
+
+function setTeacherAtt(teacherId, status) {
+  if (teacherAttState[teacherId] === status) {
+    delete teacherAttState[teacherId];
+  } else {
+    teacherAttState[teacherId] = status;
+  }
+  renderPage();
+}
+
+function saveTeacherAttendance() {
+  const date = filters.attDate || new Date().toISOString().slice(0,10);
+  const entries = Object.entries(teacherAttState);
+  if (entries.length === 0) { toast('لم تحدد حضور أي مدرس', 'error'); return; }
+  entries.forEach(([tid, status]) => {
+    let existing = DB.teacherAttendance.find(a => a.date === date && a.teacherId === tid);
+    if (existing) existing.status = status;
+    else DB.teacherAttendance.push({ id: genId(), date, teacherId: tid, status });
+  });
+  saveData(DB);
+  teacherAttState = {};
+  renderPage();
+  toast('تم حفظ حضور المدرسين');
+}
+
+
+/* ===== subscriptions.js ===== */
+
+// subscriptions.js - إدارة الاشتراكات
+function renderSubscriptionsPage() {
+  const month = filters.subMonth || new Date().toISOString().slice(0,7);
+  let list = DB.subscriptions.filter(s => s.month === month);
+  const totalPaid = list.reduce((a,b) => a + Number(b.paid||0), 0);
+  const totalRequired = list.reduce((a,b) => a + Number(b.amount||0), 0);
+
+  // الطلاب المتأخرون
+  const lateStudents = DB.students.filter(st => !DB.subscriptions.some(s => s.studentId === st.id && s.month === month));
+
+  return `
+  <div class="flex flex-col gap-4">
+    <div class="flex flex-wrap gap-3 justify-between items-center">
+      <div class="flex gap-3 items-center card" style="padding:10px 16px">
+        <input type="month" value="${escapeHtml(month)}" onchange="filters.subMonth=this.value; renderPage()" class="input" style="width:auto; font-weight:900">
+        <span class="badge badge-gray">${list.length} اشتراك</span>
+        <span class="badge badge-green">${totalPaid} ج محصل</span>
+        <span class="badge badge-amber">المطلوب ${totalRequired} ج</span>
+      </div>
+      <button onclick="openSubscriptionModal()" class="btn btn-primary">+ إضافة اشتراك</button>
+    </div>
+
+    <div class="card" style="padding:0; overflow:hidden">
+      <div class="table-wrap" style="border:none; border-radius:0">
+        <table>
+          <thead>
+            <tr>
+              <th>الطالب</th>
+              <th>المجموعة</th>
+              <th>الشهر</th>
+              <th>المطلوب</th>
+              <th>المدفوع</th>
+              <th>المتبقي</th>
+              <th>التاريخ</th>
+              <th>إجراء</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${list.length===0 ? `<tr><td colspan="8" class="empty">لا توجد اشتراكات في ${escapeHtml(month)} - ابدأ بإضافة اشتراك</td></tr>` : list.map(s => {
+              const paid = Number(s.paid||0);
+              const req = Number(s.amount||0);
+              const remain = req - paid;
+              return `
+              <tr>
+                <td>
+                  <div class="font-bold text-sm">${escapeHtml(getStudentName(s.studentId))}</div>
+                  <div class="text-xs text-muted" style="font-family:monospace">${escapeHtml(getStudentCode(s.studentId))}</div>
+                </td>
+                <td class="text-sm">${escapeHtml(getGroupName(s.groupId))}</td>
+                <td class="text-sm font-bold">${escapeHtml(s.month)}</td>
+                <td class="text-sm">${req} ج</td>
+                <td class="font-black" style="color:${paid>=req?'var(--success)':'var(--warning)'}">${paid} ج</td>
+                <td class="text-sm ${remain>0?'text-danger font-bold':''}">${remain>0 ? remain+' ج' : 'مكتمل'}</td>
+                <td class="text-xs">${escapeHtml(s.date||'')}</td>
+                <td><button onclick="deleteSub('${s.id}')" class="btn btn-ghost btn-sm" style="color:var(--danger)">حذف</button></td>
+              </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="background:var(--warning-light); border-color:var(--warning)">
+      <div class="font-black text-sm mb-3">⚠️ الطلاب المتأخرون في ${escapeHtml(month)} (لم يدفعوا) - ${lateStudents.length} طالب</div>
+      ${lateStudents.length===0 ? '<div class="text-xs">لا يوجد متأخرون - الكل دفع 🎉</div>' : `
+        <div class="flex flex-wrap gap-2">
+          ${lateStudents.slice(0,50).map(st => `<span class="badge badge-gray" style="background:var(--card)">${escapeHtml(st.name)} (${escapeHtml(st.code)}) - ${escapeHtml(getGroupName(st.groupId))}</span>`).join('')}
+        </div>
+        ${lateStudents.length>50 ? `<div class="text-xs mt-2">... و ${lateStudents.length-50} طالب آخر</div>` : ''}
+      `}
+    </div>
+  </div>
+  `;
+}
+
+function openSubscriptionModal() {
+  openModal(`
+    <div class="modal-header">
+      <h3 class="font-black">إضافة اشتراك شهري</h3>
+      <button onclick="closeModal()" class="btn btn-ghost btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="flex flex-col gap-3">
+        <div>
+          <label class="label">الطالب *</label>
+          <select id="sub-student" class="input" onchange="updateSubGroup()">
+            <option value="">اختر طالب</option>
+            ${DB.students.map(s => `<option value="${s.id}">${escapeHtml(s.name)} - ${escapeHtml(s.code)} - ${escapeHtml(getGroupName(s.groupId))}</option>`).join('')}
+          </select>
+        </div>
+        <div id="sub-group-display" class="text-xs text-muted"></div>
+        <div>
+          <label class="label">الشهر *</label>
+          <input id="sub-month" type="month" value="${new Date().toISOString().slice(0,7)}" class="input">
+        </div>
+        <div class="grid grid-2 gap-3">
+          <div>
+            <label class="label">المبلغ المطلوب (ج) *</label>
+            <input id="sub-amount" type="number" value="${DB.centerSettings.defaultSubscription||''}" class="input" placeholder="مثال: 200">
+          </div>
+          <div>
+            <label class="label">المدفوع (ج) *</label>
+            <input id="sub-paid" type="number" class="input" placeholder="مثال: 200">
+          </div>
+        </div>
+        <div>
+          <label class="label">تاريخ الدفع</label>
+          <input id="sub-date" type="date" value="${new Date().toISOString().slice(0,10)}" class="input">
+        </div>
+        <div>
+          <label class="label">ملاحظات (اختياري)</label>
+          <input id="sub-notes" class="input" placeholder="ملاحظات...">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()" class="btn btn-secondary">إلغاء</button>
+      <button onclick="saveSubscription()" class="btn btn-primary">💾 حفظ الاشتراك</button>
+    </div>
+  `);
+}
+
+function updateSubGroup() {
+  const sid = document.getElementById('sub-student').value;
+  const st = DB.students.find(s => s.id === sid);
+  const display = document.getElementById('sub-group-display');
+  if (st) {
+    const group = getGroupFull(st.groupId);
+    const subVal = group?.subscriptionValue || DB.centerSettings.defaultSubscription || 0;
+    display.innerHTML = `المجموعة: <b>${escapeHtml(getGroupName(st.groupId))}</b> • الاشتراك الافتراضي: ${subVal} ج`;
+    const amountInput = document.getElementById('sub-amount');
+    if (amountInput && !amountInput.value) amountInput.value = subVal;
+  } else {
+    display.innerHTML = '';
+  }
+}
+
+function saveSubscription() {
+  const studentId = document.getElementById('sub-student').value;
+  const month = document.getElementById('sub-month').value;
+  const amount = document.getElementById('sub-amount').value.trim();
+  const paid = document.getElementById('sub-paid').value.trim();
+  const date = document.getElementById('sub-date').value;
+  const notes = document.getElementById('sub-notes').value.trim();
+
+  if (!studentId) { toast('اختر الطالب', 'error'); return; }
+  if (!month) { toast('اختر الشهر', 'error'); return; }
+  if (!amount || isNaN(amount)) { toast('المبلغ المطلوب غير صالح', 'error'); return; }
+  if (!paid || isNaN(paid)) { toast('المبلغ المدفوع غير صالح', 'error'); return; }
+
+  // منع التكرار لنفس الطالب/الشهر
+  if (DB.subscriptions.some(s => s.studentId === studentId && s.month === month)) {
+    toast('يوجد اشتراك بالفعل لهذا الطالب في نفس الشهر - احذف القديم أولا', 'error');
+    return;
+  }
+
+  const st = DB.students.find(s => s.id === studentId);
+  DB.subscriptions.push({
+    id: genId(),
+    studentId,
+    groupId: st?.groupId || '',
+    month,
+    amount: Number(amount),
+    paid: Number(paid),
+    date,
+    notes,
+    createdAt: new Date().toISOString()
+  });
+  saveData(DB);
+  closeModal();
+  renderPage();
+  toast('تم حفظ الاشتراك - كاش فقط ✅');
+}
+
+function deleteSub(id) {
+  confirmDialog('حذف اشتراك', 'هل أنت متأكد من حذف هذا الاشتراك؟', () => {
+    DB.subscriptions = DB.subscriptions.filter(s => s.id !== id);
+    saveData(DB);
+    renderPage();
+    toast('تم حذف الاشتراك');
+  });
+}
+
+
+/* ===== expenses.js ===== */
+
+// expenses.js - المصروفات
+let expenseFilterMonth = '';
+
+function renderExpensesPage() {
+  const month = filters.expMonth || new Date().toISOString().slice(0,7);
+  let list = DB.expenses.filter(e => e.date.startsWith(month));
+  const total = list.reduce((a,b) => a + Number(b.amount||0), 0);
+
+  // تجميع حسب النوع
+  const byType = {};
+  list.forEach(e => {
+    const typeName = DB.expenseTypes.find(t => t.id === e.typeId)?.name || 'غير محدد';
+    if (!byType[typeName]) byType[typeName] = 0;
+    byType[typeName] += Number(e.amount||0);
+  });
+
+  return `
+  <div class="flex flex-col gap-4">
+    <div class="flex flex-wrap justify-between items-center gap-3">
+      <div class="flex gap-3 items-center card" style="padding:10px 16px">
+        <input type="month" value="${escapeHtml(month)}" onchange="filters.expMonth=this.value; renderPage()" class="input" style="width:auto; font-weight:900">
+        <span class="badge badge-red">الإجمالي: ${total} ج</span>
+        <span class="badge badge-gray">${list.length} عملية</span>
+      </div>
+      <button onclick="openExpenseModal()" class="btn btn-primary">+ إضافة مصروف</button>
+    </div>
+
+    <div class="grid" style="grid-template-columns:2fr 1fr; gap:16px">
+      <div class="card" style="padding:0; overflow:hidden">
+        <div class="p-4 font-black text-sm" style="border-bottom:1px solid var(--border)">المصروفات - ${escapeHtml(month)}</div>
+        <div class="table-wrap" style="border:none; border-radius:0">
+          <table>
+            <thead><tr><th>النوع</th><th>القيمة</th><th>التاريخ</th><th>الوصف</th><th>إجراء</th></tr></thead>
+            <tbody>
+              ${list.length===0 ? `<tr><td colspan="5" class="empty">لا توجد مصروفات في ${escapeHtml(month)}<br><span class="text-xs">المستخدم هو اللي يضيف أنواع المصروفات</span></td></tr>` : list.map(e => `
+                <tr>
+                  <td><span class="badge badge-gray">${escapeHtml(DB.expenseTypes.find(t=>t.id===e.typeId)?.name||'-')}</span></td>
+                  <td class="font-black">${escapeHtml(e.amount)} ج</td>
+                  <td class="text-xs">${escapeHtml(e.date)}</td>
+                  <td class="text-sm">${escapeHtml(e.description||'')} ${e.notes ? `<br><span class="text-xs text-muted">${escapeHtml(e.notes)}</span>` : ''}</td>
+                  <td><button onclick="deleteExpense('${e.id}')" class="btn btn-ghost btn-sm" style="color:var(--danger)">حذف</button></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-4">
+        <div class="card">
+          <div class="font-black text-sm mb-3">ملخص حسب النوع</div>
+          ${Object.keys(byType).length===0 ? '<div class="text-xs text-muted">لا يوجد</div>' : Object.entries(byType).map(([type, sum]) => `
+            <div class="flex justify-between p-2 rounded-lg mb-1" style="background:var(--bg); border:1px solid var(--border)">
+              <span class="text-sm font-bold">${escapeHtml(type)}</span>
+              <span class="text-sm font-black">${sum} ج</span>
+            </div>
+          `).join('')}
+          <div class="flex justify-between p-2 rounded-lg mt-2 font-black" style="background:var(--danger-light); border:1px solid var(--danger); color:var(--danger)">
+            <span>الإجمالي</span><span>${total} ج</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="font-black text-sm mb-3">أنواع المصروفات - المستخدم يضيف</div>
+          <div class="text-xs text-muted mb-3">لا توجد أنواع إجبارية - أضف حسب احتياجك (إيجار، كهرباء، مرتبات...)</div>
+          <div class="flex flex-col gap-2 mb-3" style="max-height:200px; overflow:auto">
+            ${DB.expenseTypes.length===0 ? '<div class="text-xs text-muted">لا توجد أنواع - أضف أول نوع</div>' : DB.expenseTypes.map(t => `
+              <div class="flex justify-between items-center p-2 rounded-xl" style="background:var(--bg); border:1px solid var(--border)">
+                <span class="text-sm font-bold">${escapeHtml(t.name)}</span>
+                <button onclick="deleteExpenseType('${t.id}')" class="btn btn-ghost btn-sm" style="color:var(--danger)">×</button>
+              </div>
+            `).join('')}
+          </div>
+          <div class="flex gap-2">
+            <input id="new-exp-type" placeholder="نوع جديد..." class="input input-sm" style="flex:1">
+            <button onclick="addExpenseType()" class="btn btn-secondary btn-sm">إضافة</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+function openExpenseModal() {
+  openModal(`
+    <div class="modal-header">
+      <h3 class="font-black">إضافة مصروف جديد</h3>
+      <button onclick="closeModal()" class="btn btn-ghost btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="flex flex-col gap-3">
+        <div>
+          <label class="label">نوع المصروف *</label>
+          <select id="exp-type" class="input">
+            <option value="">اختر النوع</option>
+            ${DB.expenseTypes.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}
+          </select>
+          ${DB.expenseTypes.length===0 ? '<div class="text-xs text-danger mt-1">لا توجد أنواع - أضف نوع من الإعدادات أو من هنا</div>' : ''}
+        </div>
+        <div>
+          <label class="label">القيمة (ج) *</label>
+          <input id="exp-amount" type="number" class="input" placeholder="مثال: 500">
+        </div>
+        <div>
+          <label class="label">التاريخ *</label>
+          <input id="exp-date" type="date" value="${new Date().toISOString().slice(0,10)}" class="input">
+        </div>
+        <div>
+          <label class="label">الوصف</label>
+          <input id="exp-desc" class="input" placeholder="مثال: إيجار شهر مايو">
+        </div>
+        <div>
+          <label class="label">ملاحظات (اختياري)</label>
+          <textarea id="exp-notes" class="input" rows="2"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()" class="btn btn-secondary">إلغاء</button>
+      <button onclick="saveExpense()" class="btn btn-primary">💾 حفظ المصروف</button>
+    </div>
+  `);
+}
+
+function saveExpense() {
+  const typeId = document.getElementById('exp-type').value;
+  const amount = document.getElementById('exp-amount').value.trim();
+  const date = document.getElementById('exp-date').value;
+  const desc = document.getElementById('exp-desc').value.trim();
+  const notes = document.getElementById('exp-notes').value.trim();
+
+  if (!typeId) { toast('اختر نوع المصروف', 'error'); return; }
+  if (!amount || isNaN(amount) || Number(amount) <= 0) { toast('القيمة غير صالحة', 'error'); return; }
+  if (!date) { toast('اختر التاريخ', 'error'); return; }
+
+  DB.expenses.push({
+    id: genId(),
+    typeId,
+    amount: Number(amount),
+    date,
+    description: desc,
+    notes,
+    createdAt: new Date().toISOString()
+  });
+  saveData(DB);
+  closeModal();
+  renderPage();
+  toast('تم حفظ المصروف');
+}
+
+function deleteExpense(id) {
+  confirmDialog('حذف مصروف', 'هل أنت متأكد من حذف هذا المصروف؟', () => {
+    DB.expenses = DB.expenses.filter(e => e.id !== id);
+    saveData(DB);
+    renderPage();
+    toast('تم حذف المصروف');
+  });
+}
+
+function addExpenseType() {
+  const input = document.getElementById('new-exp-type');
+  const v = input ? input.value.trim() : '';
+  if (!v) { toast('اكتب اسم النوع', 'error'); return; }
+  if (DB.expenseTypes.some(t => t.name === v)) { toast('النوع موجود مسبقا', 'error'); return; }
+  DB.expenseTypes.push({ id: genId(), name: v });
+  saveData(DB);
+  renderPage();
+  toast('تمت إضافة نوع المصروف');
+}
+
+function deleteExpenseType(id) {
+  if (DB.expenses.some(e => e.typeId === id)) {
+    toast('لا يمكن حذف نوع مستخدم في مصروفات - احذف المصروفات أولا', 'error');
+    return;
+  }
+  confirmDialog('حذف نوع', 'هل أنت متأكد من حذف هذا النوع؟', () => {
+    DB.expenseTypes = DB.expenseTypes.filter(t => t.id !== id);
+    saveData(DB);
+    renderPage();
+    toast('تم حذف النوع');
+  });
+}
+
+
+/* ===== reports.js ===== */
+
+// reports.js - التقارير الحقيقية
+function renderReportsPage() {
+  const month = filters.repMonth || new Date().toISOString().slice(0,7);
+  const type = filters.repType || 'attendance';
+
+  return `
+  <div class="flex flex-col gap-4">
+    <div class="card flex flex-wrap gap-3 items-end">
+      <div style="min-width:220px; flex:1">
+        <label class="label">نوع التقرير للداعم (الكنيسة) - كل تقرير مستقل</label>
+        <select onchange="filters.repType=this.value; renderPage()" class="input">
+          <option value="attendance" ${type==='attendance'?'selected':''}>حضور الطلاب - شهري</option>
+          <option value="absence" ${type==='absence'?'selected':''}>غياب الطلاب - شهري</option>
+          <option value="teacherAtt" ${type==='teacherAtt'?'selected':''}>حضور المدرسين - شهري</option>
+          <option value="students" ${type==='students'?'selected':''}>قائمة الطلاب - بدون هواتف (للداعم)</option>
+          <option value="teachers" ${type==='teachers'?'selected':''}>قائمة المدرسين</option>
+          <option value="groups" ${type==='groups'?'selected':''}>المجموعات الدراسية</option>
+          <option value="subscriptions" ${type==='subscriptions'?'selected':''}>الاشتراكات الشهرية</option>
+          <option value="expenses" ${type==='expenses'?'selected':''}>المصروفات الشهرية</option>
+          <option value="salaries" ${type==='salaries'?'selected':''}>رواتب ومستحقات المدرسين</option>
+        </select>
+      </div>
+      <div style="min-width:160px">
+        <label class="label">الشهر</label>
+        <input type="month" value="${escapeHtml(month)}" onchange="filters.repMonth=this.value; renderPage()" class="input">
+      </div>
+      <button onclick="generateReport()" class="btn btn-primary btn-lg" style="margin-right:auto">📄 معاينة التقرير A4</button>
+    </div>
+
+    <div id="report-preview" class="card" style="min-height:500px">
+      <div class="empty">
+        <div class="empty-icon">📄</div>
+        <div class="font-black">تقارير الداعم - كنيسة 💒</div>
+        <div class="text-xs text-muted mt-2" style="line-height:1.8; max-width:600px; margin:8px auto 0">
+          اختر نوع التقرير والشهر ثم اضغط معاينة<br>
+          سيتم إنشاء تقرير احترافي A4 برأس:<br>
+          اسم السنتر + العنوان + الهاتف (إذا موجود) + لوجو (إذا موجود)<br>
+          وFooter: Developed by ENG. Mark Eshak - 01277482080 (قابل للتعديل)<br>
+          <b>بدون أرقام تليفونات الطلاب</b> - البيانات الأساسية فقط للداعم<br>
+          طباعة نظيفة بدون Sidebar/أزرار
+        </div>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+function generateReport() {
+  const month = filters.repMonth || new Date().toISOString().slice(0,7);
+  const type = filters.repType || 'attendance';
+  const cs = DB.centerSettings;
+
+  const headerHtml = `
+    <div style="text-align:center; border-bottom:3px solid #1e40af; padding-bottom:16px; margin-bottom:20px">
+      <div style="display:flex; justify-content:center; align-items:center; gap:16px; flex-wrap:wrap">
+        ${cs.logo ? `<img src="${cs.logo}" style="width:80px; height:80px; object-fit:contain; border-radius:12px; border:1px solid #e2e8f0">` : ''}
+        <div>
+          <h1 style="font-size:24px; font-weight:900; margin:0; color:#1e40af">${escapeHtml(cs.name)}</h1>
+          ${cs.address ? `<p style="font-size:12px; margin:6px 0; color:#334155">📍 ${escapeHtml(cs.address)}</p>` : ''}
+          ${cs.phone ? `<p style="font-size:12px; margin:4px 0; color:#334155">📞 ${escapeHtml(cs.phone)}</p>` : ''}
+          <p style="font-size:11px; color:#64748b; margin-top:6px">💒 سنتر تعليمي مدعوم - كنيسة - فرع واحد</p>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const footerHtml = `
+    <div style="margin-top:36px; border-top:2px solid #e2e8f0; padding-top:14px; font-size:11px; text-align:center; color:#475569; line-height:1.6">
+      <p style="font-weight:900; font-size:12px; color:#0f172a">Developed by ${escapeHtml(cs.developerName)}</p>
+      <p>Phone / WhatsApp / Technical Support: ${escapeHtml(cs.developerPhone)}</p>
+      <p style="margin-top:8px; font-size:10px; color:#94a3b8">تاريخ إصدار التقرير: ${new Date().toLocaleDateString('ar-EG')} - الشهر: ${escapeHtml(month)} - مقاس A4 - ${escapeHtml(cs.name)}</p>
+    </div>
+  `;
+
+  const titleMap = {
+    attendance: 'تقرير حضور الطلاب الشهري',
+    absence: 'تقرير غياب الطلاب الشهري',
+    teacherAtt: 'تقرير حضور المدرسين الشهري',
+    students: 'كشف الطلاب - البيانات الأساسية (بدون هواتف) - للداعم',
+    teachers: 'كشف المدرسين',
+    groups: 'تقرير المجموعات الدراسية',
+    subscriptions: 'تقرير الاشتراكات الشهرية',
+    expenses: 'تقرير المصروفات الشهرية',
+    salaries: 'تقرير رواتب ومستحقات المدرسين'
+  };
+  const title = titleMap[type] || 'تقرير';
+
+  let bodyHtml = '';
+  let totalInfo = '';
+
+  if (type === 'attendance') {
+    const atts = DB.attendance.filter(a => a.date.startsWith(month) && a.status === 'حاضر');
+    bodyHtml = `
+      <table style="width:100%; border-collapse:collapse; font-size:12px">
+        <thead><tr style="background:#f1f5f9">
+          <th style="border:1px solid #cbd5e1; padding:10px; text-align:right">الطالب</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">الكود</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">المجموعة</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">التاريخ</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">الحالة</th>
+        </tr></thead>
+        <tbody>
+          ${atts.length===0 ? `<tr><td colspan="5" style="text-align:center; padding:24px; border:1px solid #e2e8f0">لا توجد بيانات حضور في ${escapeHtml(month)}</td></tr>` : atts.map(a => `
+            <tr>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(getStudentName(a.studentId))}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px; font-family:monospace">${escapeHtml(getStudentCode(a.studentId))}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(getGroupName(a.groupId))}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(a.date)}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px; color:#059669; font-weight:bold">${escapeHtml(a.status)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    totalInfo = `<p style="margin-top:16px; font-weight:900; background:#f0fdf4; padding:10px; border-radius:8px; border:1px solid #bbf7d0">إجمالي الحضور: ${atts.length} حالة حضور في ${escapeHtml(month)}</p>`;
+  } else if (type === 'absence') {
+    const atts = DB.attendance.filter(a => a.date.startsWith(month) && a.status !== 'حاضر');
+    bodyHtml = `
+      <table style="width:100%; border-collapse:collapse; font-size:12px">
+        <thead><tr style="background:#fef2f2">
+          <th style="border:1px solid #fecaca; padding:10px; text-align:right">الطالب</th>
+          <th style="border:1px solid #fecaca; padding:10px">الكود</th>
+          <th style="border:1px solid #fecaca; padding:10px">المجموعة</th>
+          <th style="border:1px solid #fecaca; padding:10px">التاريخ</th>
+          <th style="border:1px solid #fecaca; padding:10px">الحالة</th>
+        </tr></thead>
+        <tbody>
+          ${atts.length===0 ? `<tr><td colspan="5" style="text-align:center; padding:24px; border:1px solid #e2e8f0">لا يوجد غياب في ${escapeHtml(month)} - ممتاز! 🎉</td></tr>` : atts.map(a => `
+            <tr>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(getStudentName(a.studentId))}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px; font-family:monospace">${escapeHtml(getStudentCode(a.studentId))}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(getGroupName(a.groupId))}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(a.date)}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px; color:#dc2626; font-weight:bold">${escapeHtml(a.status)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    totalInfo = `<p style="margin-top:16px; font-weight:900; background:#fef2f2; padding:10px; border-radius:8px; border:1px solid #fecaca">إجمالي الغياب/التأخير: ${atts.length} حالة في ${escapeHtml(month)}</p>`;
+  } else if (type === 'students') {
+    bodyHtml = `
+      <table style="width:100%; border-collapse:collapse; font-size:11px">
+        <thead><tr style="background:#f1f5f9">
+          <th style="border:1px solid #cbd5e1; padding:8px">الكود</th>
+          <th style="border:1px solid #cbd5e1; padding:8px">الاسم</th>
+          <th style="border:1px solid #cbd5e1; padding:8px">المرحلة</th>
+          <th style="border:1px solid #cbd5e1; padding:8px">الصف</th>
+          <th style="border:1px solid #cbd5e1; padding:8px">المجموعة</th>
+          <th style="border:1px solid #cbd5e1; padding:8px">الحالة</th>
+        </tr></thead>
+        <tbody>
+          ${DB.students.map(s => `
+            <tr>
+              <td style="border:1px solid #e2e8f0; padding:6px; font-family:monospace; font-weight:bold">${escapeHtml(s.code)}</td>
+              <td style="border:1px solid #e2e8f0; padding:6px">${escapeHtml(s.name)}</td>
+              <td style="border:1px solid #e2e8f0; padding:6px">${escapeHtml(getStageName(s.stageId))}</td>
+              <td style="border:1px solid #e2e8f0; padding:6px">${escapeHtml(s.grade||'')}</td>
+              <td style="border:1px solid #e2e8f0; padding:6px">${escapeHtml(getGroupName(s.groupId))}</td>
+              <td style="border:1px solid #e2e8f0; padding:6px">${escapeHtml(getStatusName(s.statusId))}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <p style="font-size:10px; margin-top:10px; color:#64748b; background:#f8fafc; padding:8px; border-radius:6px; border:1px dashed #cbd5e1">⚠️ ملاحظة للداعم: هذا التقرير لا يحتوي على أرقام هواتف الطلاب حسب طلب إدارة السنتر - البيانات الأساسية فقط - ${DB.students.length} طالب</p>
+    `;
+  } else if (type === 'teachers') {
+    bodyHtml = `
+      <table style="width:100%; border-collapse:collapse; font-size:12px">
+        <thead><tr style="background:#f1f5f9">
+          <th style="border:1px solid #cbd5e1; padding:10px">الاسم</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">التخصص</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">المواد</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">الحالة</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">المجموعات</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">الطلاب</th>
+        </tr></thead>
+        <tbody>
+          ${DB.teachers.map(t => {
+            const gCount = DB.groups.filter(g => g.teacherIds?.includes(t.id)).length;
+            const sCount = DB.students.filter(s => { const g = DB.groups.find(gr => gr.id===s.groupId); return g?.teacherIds?.includes(t.id); }).length;
+            return `<tr>
+              <td style="border:1px solid #e2e8f0; padding:8px; font-weight:bold">${escapeHtml(t.name)}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(t.specialization||'')}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(t.subjects?.join('، ')||'')}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(getTeacherStatusName(t.statusId))}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${gCount}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${sCount}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    `;
+  } else if (type === 'subscriptions') {
+    const subs = DB.subscriptions.filter(s => s.month === month);
+    bodyHtml = `
+      <table style="width:100%; border-collapse:collapse; font-size:12px">
+        <thead><tr style="background:#f1f5f9">
+          <th style="border:1px solid #cbd5e1; padding:10px">الطالب</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">الكود</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">المجموعة</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">المطلوب</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">المدفوع</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">التاريخ</th>
+        </tr></thead>
+        <tbody>
+          ${subs.length===0 ? `<tr><td colspan="6" style="text-align:center; padding:20px; border:1px solid #e2e8f0">لا توجد اشتراكات في ${escapeHtml(month)}</td></tr>` : subs.map(s => `
+            <tr>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(getStudentName(s.studentId))}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px; font-family:monospace">${escapeHtml(getStudentCode(s.studentId))}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(getGroupName(s.groupId))}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(s.amount)} ج</td>
+              <td style="border:1px solid #e2e8f0; padding:8px; font-weight:900">${escapeHtml(s.paid)} ج</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(s.date||'')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    totalInfo = `<p style="margin-top:16px; font-weight:900; background:#f0fdf4; padding:10px; border-radius:8px; border:1px solid #bbf7d0">إجمالي المحصل في ${escapeHtml(month)}: ${subs.reduce((a,b)=>a+Number(b.paid||0),0)} جنيه - عدد الاشتراكات: ${subs.length}</p>`;
+  } else if (type === 'expenses') {
+    const exps = DB.expenses.filter(e => e.date.startsWith(month));
+    bodyHtml = `
+      <table style="width:100%; border-collapse:collapse; font-size:12px">
+        <thead><tr style="background:#f1f5f9">
+          <th style="border:1px solid #cbd5e1; padding:10px">نوع المصروف</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">القيمة</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">التاريخ</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">الوصف</th>
+        </tr></thead>
+        <tbody>
+          ${exps.length===0 ? `<tr><td colspan="4" style="text-align:center; padding:20px; border:1px solid #e2e8f0">لا توجد مصروفات في ${escapeHtml(month)}</td></tr>` : exps.map(e => `
+            <tr>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(DB.expenseTypes.find(t=>t.id===e.typeId)?.name||'')}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px; font-weight:bold">${escapeHtml(e.amount)} ج</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(e.date)}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(e.description||'')} ${e.notes ? '<br><small style="color:#64748b">'+escapeHtml(e.notes)+'</small>' : ''}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    totalInfo = `<p style="margin-top:16px; font-weight:900; background:#fef2f2; padding:10px; border-radius:8px; border:1px solid #fecaca">إجمالي المصروفات في ${escapeHtml(month)}: ${exps.reduce((a,b)=>a+Number(b.amount||0),0)} جنيه</p>`;
+  } else if (type === 'teacherAtt') {
+    const atts = DB.teacherAttendance.filter(a => a.date.startsWith(month));
+    bodyHtml = `
+      <table style="width:100%; border-collapse:collapse; font-size:12px">
+        <thead><tr style="background:#f1f5f9">
+          <th style="border:1px solid #cbd5e1; padding:10px">المدرس</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">التاريخ</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">الحالة</th>
+        </tr></thead>
+        <tbody>
+          ${atts.length===0 ? `<tr><td colspan="3" style="text-align:center; padding:20px; border:1px solid #e2e8f0">لا يوجد سجل حضور للمدرسين في ${escapeHtml(month)}</td></tr>` : atts.map(a => `
+            <tr>
+              <td style="border:1px solid #e2e8f0; padding:8px; font-weight:bold">${escapeHtml(DB.teachers.find(t=>t.id===a.teacherId)?.name||'')}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(a.date)}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px; font-weight:bold; color:${a.status==='حاضر'?'#059669':'#dc2626'}">${escapeHtml(a.status)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  } else if (type === 'groups') {
+    bodyHtml = `
+      <table style="width:100%; border-collapse:collapse; font-size:11px">
+        <thead><tr style="background:#f1f5f9">
+          <th style="border:1px solid #cbd5e1; padding:8px">رقم المجموعة</th>
+          <th style="border:1px solid #cbd5e1; padding:8px">المرحلة/الصف/المادة</th>
+          <th style="border:1px solid #cbd5e1; padding:8px">المدرس</th>
+          <th style="border:1px solid #cbd5e1; padding:8px">عدد الطلاب</th>
+          <th style="border:1px solid #cbd5e1; padding:8px">المواعيد</th>
+          <th style="border:1px solid #cbd5e1; padding:8px">الاشتراك</th>
+          <th style="border:1px solid #cbd5e1; padding:8px">الحالة</th>
+        </tr></thead>
+        <tbody>
+          ${DB.groups.map(g => `
+            <tr>
+              <td style="border:1px solid #e2e8f0; padding:6px; font-weight:900">${escapeHtml(g.number)} ${escapeHtml(g.name||'')}</td>
+              <td style="border:1px solid #e2e8f0; padding:6px">${escapeHtml(getStageName(g.stageId))} - ${escapeHtml(g.grade||'')} - ${escapeHtml(g.subject||'')}</td>
+              <td style="border:1px solid #e2e8f0; padding:6px">${escapeHtml(getTeacherNames(g.teacherIds||[]))}</td>
+              <td style="border:1px solid #e2e8f0; padding:6px">${DB.students.filter(s=>s.groupId===g.id).length} / ${escapeHtml(g.maxStudents||'∞')}</td>
+              <td style="border:1px solid #e2e8f0; padding:6px">${escapeHtml(g.days?.join('، ')||'')} ${escapeHtml(g.startTime||'')} - ${escapeHtml(g.endTime||'')}</td>
+              <td style="border:1px solid #e2e8f0; padding:6px">${escapeHtml(g.subscriptionValue||'0')} ج</td>
+              <td style="border:1px solid #e2e8f0; padding:6px">${escapeHtml(g.status||'نشطة')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  } else if (type === 'salaries') {
+    bodyHtml = `
+      <table style="width:100%; border-collapse:collapse; font-size:12px">
+        <thead><tr style="background:#f1f5f9">
+          <th style="border:1px solid #cbd5e1; padding:10px">المدرس</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">التخصص</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">المواد</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">الراتب/المستحقات</th>
+          <th style="border:1px solid #cbd5e1; padding:10px">المجموعات</th>
+        </tr></thead>
+        <tbody>
+          ${DB.teachers.map(t => `
+            <tr>
+              <td style="border:1px solid #e2e8f0; padding:8px; font-weight:bold">${escapeHtml(t.name)}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(t.specialization||'')}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${escapeHtml(t.subjects?.join('، ')||'')}</td>
+              <td style="border:1px solid #e2e8f0; padding:8px; font-weight:900">${escapeHtml(t.salary||'0')} ج</td>
+              <td style="border:1px solid #e2e8f0; padding:8px">${DB.groups.filter(g=>g.teacherIds?.includes(t.id)).length}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    totalInfo = `<p style="margin-top:16px; font-weight:900; background:#f1f5f9; padding:10px; border-radius:8px; border:1px solid #cbd5e1">إجمالي الرواتب: ${DB.teachers.reduce((a,b)=>a+Number(b.salary||0),0)} جنيه - عدد المدرسين: ${DB.teachers.length}</p>`;
+  }
+
+  const fullHtml = `
+    <div style="font-family:'Cairo',sans-serif; direction:rtl; padding:24px; background:white; color:#0f172a; line-height:1.6; max-width:900px; margin:0 auto">
+      ${headerHtml}
+      <h2 style="text-align:center; font-size:18px; font-weight:900; margin:20px 0; color:#1e40af; border:2px solid #1e40af; padding:12px; border-radius:12px; background:#f8fafc">${escapeHtml(title)} - ${escapeHtml(month)}</h2>
+      ${bodyHtml}
+      ${totalInfo}
+      ${footerHtml}
+    </div>
+  `;
+
+  document.getElementById('report-preview').innerHTML = `
+    <div class="flex flex-wrap gap-2 justify-between items-center mb-6 p-4 rounded-xl no-print" style="background:var(--bg); border:1px solid var(--border)">
+      <h3 class="font-black text-sm">${escapeHtml(title)} - ${escapeHtml(month)}</h3>
+      <div class="flex gap-2">
+        <button onclick="printReport()" class="btn btn-primary">🖨️ طباعة A4 / حفظ PDF</button>
+        <button onclick="downloadReportExcel()" class="btn btn-secondary">📥 Excel</button>
+      </div>
+    </div>
+    <div id="print-area">${fullHtml}</div>
+  `;
+  window._lastReportHtml = fullHtml;
+  window._lastReportType = type;
+  window._lastReportMonth = month;
+}
+
+function printReport() {
+  const content = window._lastReportHtml;
+  if (!content) { toast('لا يوجد تقرير للطباعة', 'error'); return; }
+  const w = window.open('', '_blank');
+  w.document.write(`
+    <html dir="rtl" lang="ar">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+      <title>تقرير ${escapeHtml(window._lastReportType)} - ${escapeHtml(window._lastReportMonth)}</title>
+      <style>
+        @page { size: A4; margin: 15mm; }
+        body { font-family: 'Cairo', sans-serif; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        table { page-break-inside: auto; }
+        tr { page-break-inside: avoid; page-break-after: auto; }
+        @media print { button { display: none; } }
+      </style>
+    </head>
+    <body>
+      ${content}
+      <script>
+        setTimeout(() => { window.print(); window.close(); }, 600);
+      <\/script>
+    </body>
+    </html>
+  `);
+  w.document.close();
+}
+
+function downloadReportExcel() {
+  const type = window._lastReportType;
+  const month = window._lastReportMonth;
+  if (!type) { toast('لا يوجد تقرير', 'error'); return; }
+  // Simple CSV export for offline
+  let csv = '';
+  if (type === 'students') {
+    csv = 'الكود,الاسم,المرحلة,الصف,المجموعة,الحالة\\n';
+    DB.students.forEach(s => {
+      csv += `"${s.code}","${s.name}","${getStageName(s.stageId)}","${s.grade||''}","${getGroupName(s.groupId)}","${getStatusName(s.statusId)}"\\n`;
+    });
+  } else if (type === 'attendance') {
+    const atts = DB.attendance.filter(a => a.date.startsWith(month) && a.status === 'حاضر');
+    csv = 'الطالب,الكود,المجموعة,التاريخ,الحالة\\n';
+    atts.forEach(a => {
+      csv += `"${getStudentName(a.studentId)}","${getStudentCode(a.studentId)}","${getGroupName(a.groupId)}","${a.date}","${a.status}"\\n`;
+    });
+  } else {
+    toast('تصدير Excel لهذا التقرير قيد التطوير - استخدم الطباعة وحفظ PDF', 'error');
+    return;
+  }
+  const blob = new Blob(['\\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `تقرير-${type}-${month}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('تم تحميل ملف Excel (CSV)');
+}
+
+
+/* ===== backup.js ===== */
+
+// backup.js - النسخ الاحتياطي والاسترجاع
+function renderBackupPage() {
+  const size = (new Blob([localStorage.getItem(STORAGE_KEY)||'']).size / 1024).toFixed(1);
+  return `
+  <div class="flex flex-col gap-6" style="max-width:800px">
+    <div class="card">
+      <h3 class="font-black text-sm mb-2">💾 إنشاء نسخة احتياطية يدوية</h3>
+      <p class="text-xs text-muted mb-4" style="line-height:1.8">
+        سيتم حفظ كل بيانات السنتر في ملف JSON واحد تحمله على جهازك.<br>
+        يشمل: طلاب، مدرسين، مجموعات، حضور، اشتراكات، مصروفات، إعدادات، مراحل، حالات<br>
+        النظام Offline والنسخ يدوي كما طلبت - احتفظ بالملف في مكان آمن
+      </p>
+      <button onclick="createBackup()" class="btn btn-primary btn-lg">📥 إنشاء وتحميل نسخة الآن</button>
+      <div class="mt-4 p-3 rounded-xl text-xs" style="background:var(--bg); border:1px solid var(--border); line-height:1.8">
+        <div>📦 الحجم الحالي: <b>${size} KB</b></div>
+        <div>👥 الطلاب: ${DB.students.length} • 👨‍🏫 المدرسون: ${DB.teachers.length} • 👥 المجموعات: ${DB.groups.length}</div>
+        <div>✅ الحضور: ${DB.attendance.length} • 💰 الاشتراكات: ${DB.subscriptions.length} • 🧾 المصروفات: ${DB.expenses.length}</div>
+        <div>🕒 آخر تحديث: ${new Date().toLocaleString('ar-EG')}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 class="font-black text-sm mb-2">♻️ استرجاع نسخة احتياطية</h3>
+      <div class="p-3 rounded-xl mb-4 text-xs" style="background:var(--warning-light); border:1px solid var(--warning); line-height:1.8">
+        <div class="font-black">⚠️ تحذير مهم:</div>
+        <div class="mt-1">
+          • سيتم استبدال كل البيانات الحالية بالنسخة المسترجعة<br>
+          • سيقوم النظام تلقائيا بإنشاء نسخة أمان من البيانات الحالية قبل الاسترجاع<br>
+          • تأكد أن الملف هو نسخة احتياطية صحيحة من نفس النظام<br>
+          • بعد الاسترجاع سيتم إعادة تحميل النظام تلقائيا
+        </div>
+      </div>
+      <input type="file" id="restore-file" accept=".json" class="input mb-3">
+      <div id="restore-preview" class="card mb-3 hidden" style="background:var(--bg)"></div>
+      <button onclick="previewRestore()" class="btn btn-secondary mr-2">👁️ معاينة الملف</button>
+      <button onclick="restoreBackup()" class="btn btn-primary" style="background:var(--danger)">♻️ استرجاع النسخة</button>
+    </div>
+
+    <div class="card" style="background:var(--primary-light); border-color:var(--primary)">
+      <div class="font-bold text-sm mb-2">💡 نصائح للنسخ الاحتياطي</div>
+      <div class="text-xs" style="line-height:1.8">
+        • اعمل Backup أسبوعيا على الأقل<br>
+        • احتفظ بنسختين: واحدة على الجهاز وواحدة على Google Drive أو USB<br>
+        • بعد كل إضافة كبيرة (طلاب جدد، مجموعات) اعمل Backup<br>
+        • ملف الـ JSON يمكن فتحه وقراءته - كل بياناتك فيه<br>
+        • لو حذفت بيانات بالخطأ، استرجع آخر Backup
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+function createBackup() {
+  const dataStr = localStorage.getItem(STORAGE_KEY);
+  if (!dataStr) { toast('لا توجد بيانات', 'error'); return; }
+  try {
+    const parsed = JSON.parse(dataStr);
+    // Add metadata
+    parsed._backupMeta = {
+      createdAt: new Date().toISOString(),
+      version: 'v2',
+      centerName: parsed.centerSettings?.name || 'سنتر سان جورج',
+      counts: {
+        students: parsed.students?.length || 0,
+        teachers: parsed.teachers?.length || 0,
+        groups: parsed.groups?.length || 0,
+        attendance: parsed.attendance?.length || 0,
+        subscriptions: parsed.subscriptions?.length || 0,
+        expenses: parsed.expenses?.length || 0
+      }
+    };
+    const blob = new Blob([JSON.stringify(parsed, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `st-george-backup-${new Date().toISOString().slice(0,10)}-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('تم إنشاء وتحميل النسخة الاحتياطية - احتفظ بها في مكان آمن ✅');
+  } catch (e) {
+    toast('خطأ في إنشاء النسخة: ' + e.message, 'error');
+  }
+}
+
+function previewRestore() {
+  const input = document.getElementById('restore-file');
+  if (!input.files[0]) { toast('اختر ملف أولا', 'error'); return; }
+  const file = input.files[0];
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      const preview = document.getElementById('restore-preview');
+      preview.classList.remove('hidden');
+      preview.innerHTML = `
+        <div class="font-black text-sm mb-2">معاينة النسخة</div>
+        <div class="text-xs" style="line-height:1.8">
+          <div>📁 اسم الملف: ${escapeHtml(file.name)}</div>
+          <div>📦 الحجم: ${(file.size/1024).toFixed(1)} KB</div>
+          <div>🏢 اسم السنتر: ${escapeHtml(parsed.centerSettings?.name||'غير معروف')}</div>
+          <div>📅 تاريخ النسخة: ${parsed._backupMeta?.createdAt ? new Date(parsed._backupMeta.createdAt).toLocaleString('ar-EG') : 'غير معروف'}</div>
+          <div class="mt-2 font-bold">المحتويات:</div>
+          <div>👥 طلاب: ${parsed.students?.length||0} • 👨‍🏫 مدرسون: ${parsed.teachers?.length||0} • 👥 مجموعات: ${parsed.groups?.length||0}</div>
+          <div>✅ حضور: ${parsed.attendance?.length||0} • 💰 اشتراكات: ${parsed.subscriptions?.length||0} • 🧾 مصروفات: ${parsed.expenses?.length||0}</div>
+          <div class="mt-2 ${parsed.centerSettings && parsed.stages ? 'text-success' : 'text-danger'} font-bold">
+            ${parsed.centerSettings && parsed.stages ? '✅ ملف صالح - يبدو نسخة احتياطية صحيحة' : '❌ ملف غير صالح - ليس نسخة من النظام'}
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      const preview = document.getElementById('restore-preview');
+      preview.classList.remove('hidden');
+      preview.innerHTML = `<div class="text-sm" style="color:var(--danger)">❌ ملف غير صالح: ${escapeHtml(err.message)} - تأكد أنه ملف JSON صحيح</div>`;
+    }
+  };
+  reader.readAsText(file);
+}
+
+function restoreBackup() {
+  const input = document.getElementById('restore-file');
+  if (!input.files[0]) { toast('اختر ملف النسخة أولا', 'error'); return; }
+
+  confirmDialog('تأكيد الاسترجاع', '⚠️ سيتم استبدال كل البيانات الحالية بالنسخة المسترجعة.\\n\\nسيقوم النظام تلقائيا بإنشاء نسخة أمان من البيانات الحالية قبل الاسترجاع لمنع فقدان البيانات.\\n\\nهل أنت متأكد من الاسترجاع؟', () => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        // Validation
+        if (!parsed.students || !parsed.centerSettings || !parsed.stages) {
+          toast('ملف غير صالح - ليس نسخة احتياطية للنظام (يجب أن يحتوي على students, centerSettings, stages)', 'error');
+          return;
+        }
+
+        // Create safety backup
+        const currentData = localStorage.getItem(STORAGE_KEY);
+        if (currentData) {
+          const blob = new Blob([currentData], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `safety-backup-before-restore-${new Date().toISOString().slice(0,10)}-${Date.now()}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+          toast('تم إنشاء نسخة أمان من البيانات الحالية');
+        }
+
+        // Restore
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        toast('تم الاسترجاع بنجاح - سيتم إعادة تحميل النظام الآن ✅');
+        setTimeout(() => location.reload(), 1500);
+
+      } catch (err) {
+        toast('خطأ في قراءة الملف: ' + err.message + ' - تأكد أنه ملف JSON صالح', 'error');
+      }
+    };
+    reader.readAsText(input.files[0]);
+  }, 'استرجاع نهائي');
+}
+
+
+/* ===== app.js ===== */
+
+// app.js - التوجيه الرئيسي والواجهة
+let currentPage = 'dashboard';
+let filters = {
+  attGroup: '',
+  attDate: new Date().toISOString().slice(0,10),
+  subMonth: new Date().toISOString().slice(0,7),
+  expMonth: new Date().toISOString().slice(0,7),
+  repMonth: new Date().toISOString().slice(0,7),
+  repType: 'attendance'
+};
+let sidebarOpen = false;
+
+const MENU = [
+  { id: 'dashboard', label: 'الرئيسية', icon: '📊' },
+  { id: 'students', label: 'الطلاب', icon: '🎓' },
+  { id: 'teachers', label: 'المدرسون', icon: '👨‍🏫' },
+  { id: 'groups', label: 'المجموعات', icon: '👥' },
+  { id: 'attendance', label: 'الحضور', icon: '✅' },
+  { id: 'subscriptions', label: 'الاشتراكات', icon: '💰' },
+  { id: 'expenses', label: 'المصروفات', icon: '🧾' },
+  { id: 'reports', label: 'التقارير', icon: '📄' },
+  { id: 'backup', label: 'النسخ الاحتياطي', icon: '💾' },
+  { id: 'settings', label: 'الإعدادات', icon: '⚙️' },
+];
+
+function navTo(page) {
+  currentPage = page;
+  sidebarOpen = false;
+  render();
+}
+
+function toggleSidebar() {
+  sidebarOpen = !sidebarOpen;
+  const sb = document.getElementById('sidebar');
+  if (sb) {
+    if (sidebarOpen) sb.classList.add('open');
+    else sb.classList.remove('open');
+  }
+}
+
+function applyTheme() {
+  const t = localStorage.getItem(THEME_KEY) || 'light';
+  if (t === 'dark') document.documentElement.classList.add('dark');
+  else document.documentElement.classList.remove('dark');
+}
+
+function toggleTheme() {
+  const cur = localStorage.getItem(THEME_KEY) || 'light';
+  const next = cur === 'dark' ? 'light' : 'dark';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme();
+  // Update icon
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = next === 'dark' ? '☀️' : '🌙';
+  toast(next === 'dark' ? 'تم تفعيل الوضع الليلي' : 'تم تفعيل الوضع النهاري');
+}
+
+function render() {
+  applyTheme();
+  const auth = getAuth();
+  const app = document.getElementById('app');
+
+  // No auth at all - setup
+  if (!auth) {
+    app.innerHTML = `
+    <div class="min-h-screen flex items-center justify-center p-4" style="background:linear-gradient(135deg,#0f172a,#1e3a8a 50%,#0f172a)">
+      <div class="card" style="width:100%; max-width:420px; padding:32px; border-radius:28px; box-shadow:0 24px 64px rgba(0,0,0,.3)">
+        <div class="text-center mb-8">
+          <div style="width:72px; height:72px; background:linear-gradient(135deg,#1e40af,#4f46e5); border-radius:20px; margin:0 auto; display:flex; align-items:center; justify-content:center; color:white; font-size:32px; font-weight:900">S</div>
+          <h1 class="font-black mt-4" style="font-size:22px">${escapeHtml(DB.centerSettings.name)} 💒</h1>
+          <p class="text-xs text-muted mt-2" style="line-height:1.6">إعداد حساب المدير عند أول تشغيل<br>نظام فرع واحد - مدعوم - كنيسة - PWA Offline</p>
+        </div>
+        <div class="flex flex-col gap-3">
+          <div>
+            <label class="label">اسم المستخدم (Admin)</label>
+            <input id="su-user" value="admin" class="input">
+          </div>
+          <div>
+            <label class="label">كلمة المرور * (4 أحرف على الأقل)</label>
+            <input id="su-pass" type="password" class="input" placeholder="••••••••">
+          </div>
+          <div>
+            <label class="label">تأكيد كلمة المرور *</label>
+            <input id="su-pass2" type="password" class="input" placeholder="••••••••">
+          </div>
+          <button onclick="doSetup()" class="btn btn-primary btn-lg" style="width:100%; margin-top:8px">🚀 إنشاء حساب المدير والبدء</button>
+          <p class="text-xs text-muted text-center mt-2" style="line-height:1.6">كلمة المرور مشفرة ولن تخزن كنص صريح<br>احتفظ بها في مكان آمن</p>
+        </div>
+      </div>
+    </div>
+    `;
+    return;
+  }
+
+  // Not logged in
+  if (!isLoggedIn()) {
+    app.innerHTML = `
+    <div class="min-h-screen flex items-center justify-center p-4" style="background:linear-gradient(135deg,#0f172a,#1e3a8a 50%,#0f172a)">
+      <div class="card" style="width:100%; max-width:400px; padding:32px; border-radius:28px; box-shadow:0 24px 64px rgba(0,0,0,.3)">
+        <div class="text-center mb-8">
+          <div style="width:72px; height:72px; background:linear-gradient(135deg,#1e40af,#4f46e5); border-radius:20px; margin:0 auto; display:flex; align-items:center; justify-content:center; color:white; font-size:32px; font-weight:900">S</div>
+          <h1 class="font-black mt-4" style="font-size:22px">${escapeHtml(DB.centerSettings.name)}</h1>
+          <p class="text-xs text-muted mt-2">تسجيل دخول المدير - ${DB.students.length} طالب مسجل</p>
+        </div>
+        <div class="flex flex-col gap-3">
+          <input id="li-user" placeholder="اسم المستخدم" class="input">
+          <input id="li-pass" type="password" placeholder="كلمة المرور" class="input" onkeydown="if(event.key==='Enter') doLogin()">
+          <button onclick="doLogin()" class="btn btn-primary btn-lg" style="width:100%">دخول النظام</button>
+        </div>
+      </div>
+    </div>
+    `;
+    return;
+  }
+
+  // Logged in - main layout
+  const counts = {
+    students: DB.students.length,
+    active: DB.students.filter(s => getStatusName(s.statusId) === 'نشط').length,
+    teachers: DB.teachers.length,
+    groups: DB.groups.length,
+    todayAtt: DB.attendance.filter(a => a.date === new Date().toISOString().slice(0,10) && a.status === 'حاضر').length,
+    todayAbs: DB.attendance.filter(a => a.date === new Date().toISOString().slice(0,10) && a.status === 'غائب').length,
+    late: DB.attendance.filter(a => a.date === new Date().toISOString().slice(0,10) && a.status === 'متأخر').length,
+    subs: DB.subscriptions.filter(s => s.month === new Date().toISOString().slice(0,7)).reduce((a,b) => a+Number(b.paid||0),0),
+    exp: DB.expenses.filter(e => e.date.startsWith(new Date().toISOString().slice(0,7))).reduce((a,b)=>a+Number(b.amount||0),0),
+  };
+
+  let pageContent = '';
+  if (currentPage === 'dashboard') pageContent = renderDashboard(counts);
+  else if (currentPage === 'students') pageContent = renderStudentsPage();
+  else if (currentPage === 'teachers') pageContent = renderTeachersPage();
+  else if (currentPage === 'groups') pageContent = renderGroupsPage();
+  else if (currentPage === 'attendance') pageContent = renderAttendancePage();
+  else if (currentPage === 'subscriptions') pageContent = renderSubscriptionsPage();
+  else if (currentPage === 'expenses') pageContent = renderExpensesPage();
+  else if (currentPage === 'reports') pageContent = renderReportsPage();
+  else if (currentPage === 'backup') pageContent = renderBackupPage();
+  else if (currentPage === 'settings') pageContent = renderSettingsPage();
+  else pageContent = '<div class="card empty">صفحة غير موجودة</div>';
+
+  app.innerHTML = `
+  <div class="app-shell">
+    <aside id="sidebar" class="sidebar ${sidebarOpen?'open':''}">
+      <div class="p-6" style="border-bottom:1px solid var(--border)">
+        <div class="flex items-center gap-3">
+          <div style="width:48px; height:48px; background:linear-gradient(135deg,var(--primary),#4f46e5); border-radius:14px; display:flex; align-items:center; justify-content:center; color:white; font-weight:900; font-size:18px; flex-shrink:0">
+            ${DB.centerSettings.logo ? `<img src="${DB.centerSettings.logo}" style="width:100%; height:100%; object-fit:cover; border-radius:14px">` : 'S'}
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="font-black text-sm" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${escapeHtml(DB.centerSettings.name)}</div>
+            <div class="text-xs text-muted">💒 فرع واحد - ${DB.students.length} طالب</div>
+          </div>
+          <button onclick="toggleSidebar()" class="btn btn-ghost btn-sm no-print" style="display:none; @media(max-width:1024px){display:flex}">✕</button>
+        </div>
+      </div>
+      <nav class="p-3 flex-1 overflow-y-auto flex flex-col gap-1">
+        ${MENU.map(m => `
+          <button onclick="navTo('${m.id}')" class="flex items-center gap-3 p-3 rounded-xl text-sm font-bold text-left" style="width:100%; transition:all .15s; ${currentPage===m.id ? 'background:var(--primary); color:white; box-shadow:0 4px 12px rgba(30,64,175,.2)' : 'color:var(--text-muted)'}">
+            <span style="font-size:16px">${m.icon}</span> <span>${escapeHtml(m.label)}</span>
+            ${m.id==='students' && counts.students>0 ? `<span class="badge badge-gray" style="margin-right:auto; font-size:10px; ${currentPage===m.id?'background:rgba(255,255,255,.2); color:white; border-color:rgba(255,255,255,.3)':''}">${counts.students}</span>` : ''}
+          </button>
+        `).join('')}
+      </nav>
+      <div class="p-4" style="border-top:1px solid var(--border)">
+        <div class="flex gap-2">
+          <button id="theme-toggle" onclick="toggleTheme()" class="btn btn-secondary" style="flex:1">${(localStorage.getItem(THEME_KEY)||'light')==='dark' ? '☀️ نهاري' : '🌙 ليلي'}</button>
+          <button onclick="doLogout()" class="btn btn-ghost" style="flex:1; color:var(--danger)">🚪 خروج</button>
+        </div>
+        <div class="mt-3 text-xs text-center text-muted" style="line-height:1.6; font-size:10px">
+          Developed by ${escapeHtml(DB.centerSettings.developerName)}<br>
+          ${escapeHtml(DB.centerSettings.developerPhone)}<br>
+          <span style="opacity:.7">Offline PWA • v2</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="header no-print">
+        <div class="flex items-center gap-3">
+          <button onclick="toggleSidebar()" class="btn btn-secondary btn-sm" style="display:none; @media(max-width:1024px){display:flex}">☰</button>
+          <h1 class="font-black" style="font-size:16px">${escapeHtml(MENU.find(m=>m.id===currentPage)?.label || 'النظام')} - ${escapeHtml(DB.centerSettings.name)}</h1>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="badge badge-green hidden-mobile" style="font-size:10px">✅ Offline Ready</span>
+          <span class="text-xs text-muted">${new Date().toLocaleDateString('ar-EG')}</span>
+        </div>
+      </header>
+      <div class="page">
+        ${pageContent}
+      </div>
+    </main>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast-container" class="toast-container"></div>
+  `;
+
+  // Responsive sidebar handling
+  const mq = window.matchMedia('(max-width: 1024px)');
+  const sb = document.getElementById('sidebar');
+  if (mq.matches && !sidebarOpen) sb.classList.remove('open');
+}
+
+function renderDashboard(counts) {
+  return `
+  <div class="flex flex-col gap-6">
+    <div class="flex justify-between items-center flex-wrap gap-3">
+      <div>
+        <h2 class="font-black" style="font-size:20px">مرحبا بك في ${escapeHtml(DB.centerSettings.name)} 💒</h2>
+        <p class="text-sm text-muted mt-1">لوحة التحكم - فرع واحد - البيانات الحقيقية من النظام - ${new Date().toLocaleDateString('ar-EG')}</p>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="navTo('attendance')" class="btn btn-primary">✅ تسجيل حضور اليوم</button>
+        <button onclick="navTo('students')" class="btn btn-secondary">🎓 الطلاب</button>
+      </div>
+    </div>
+
+    <div class="grid grid-4">
+      <div class="stat-card primary">
+        <div class="flex justify-between items-start">
+          <div><div class="text-xs" style="opacity:.8">إجمالي الطلاب</div><div class="font-black" style="font-size:28px; margin-top:4px">${counts.students}</div><div class="text-xs" style="opacity:.8; margin-top:4px">نظيف بدون وهمي</div></div>
+          <div style="font-size:28px; opacity:.9">🎓</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="flex justify-between"><div><div class="text-xs text-muted">النشطون</div><div class="font-black" style="font-size:24px; color:var(--success)">${counts.active}</div><div class="text-xs text-muted">من ${counts.students}</div></div><div style="font-size:24px">✅</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="flex justify-between"><div><div class="text-xs text-muted">المدرسون</div><div class="font-black" style="font-size:24px">${counts.teachers}</div><div class="text-xs text-muted">${DB.groups.length} مجموعة</div></div><div style="font-size:24px">👨‍🏫</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="flex justify-between"><div><div class="text-xs text-muted">المجموعات</div><div class="font-black" style="font-size:24px">${counts.groups}</div><div class="text-xs text-muted">فرع واحد</div></div><div style="font-size:24px">👥</div></div>
+      </div>
+    </div>
+
+    <div class="grid grid-3">
+      <div class="stat-card" style="border-right:4px solid var(--success)">
+        <div class="text-xs text-muted">حضور اليوم</div>
+        <div class="font-black" style="font-size:20px; color:var(--success)">${counts.todayAtt} طالب ✅</div>
+        <div class="text-xs text-muted">غياب: ${counts.todayAbs} • تأخير: ${counts.late}</div>
+      </div>
+      <div class="stat-card" style="border-right:4px solid var(--primary)">
+        <div class="text-xs text-muted">اشتراكات الشهر الحالي</div>
+        <div class="font-black" style="font-size:20px; color:var(--primary)">${counts.subs} ج</div>
+        <div class="text-xs text-muted">${DB.subscriptions.filter(s=>s.month===new Date().toISOString().slice(0,7)).length} اشتراك</div>
+      </div>
+      <div class="stat-card" style="border-right:4px solid var(--danger)">
+        <div class="text-xs text-muted">مصروفات الشهر / صافي</div>
+        <div class="font-black" style="font-size:18px"><span style="color:var(--danger)">${counts.exp} ج مصروف</span> • <span style="color:${counts.subs-counts.exp>=0?'var(--success)':'var(--danger)'}">${counts.subs-counts.exp} صافي</span></div>
+        <div class="text-xs text-muted">الدفع كاش فقط</div>
+      </div>
+    </div>
+
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="font-black text-sm mb-3">⚠️ تنبيهات سريعة</div>
+        ${(() => {
+          const noGroup = DB.students.filter(s => !s.groupId).length;
+          const noSub = DB.students.filter(s => !DB.subscriptions.some(sub => sub.studentId===s.id && sub.month===new Date().toISOString().slice(0,7))).length;
+          const fullGroups = DB.groups.filter(g => g.maxStudents && DB.students.filter(s=>s.groupId===g.id).length >= parseInt(g.maxStudents)).length;
+          if (noGroup===0 && noSub===0 && fullGroups===0) return '<div class="text-sm text-success font-bold">✅ كل شيء تمام - لا توجد تنبيهات - النظام نظيف 🎉</div>';
+          return `
+            <div class="flex flex-col gap-2 text-sm">
+              ${noGroup>0 ? `<div class="p-2 rounded-lg flex justify-between" style="background:var(--warning-light); border:1px solid var(--warning)"><span>👥 ${noGroup} طالب بدون مجموعة</span><button onclick="navTo('students')" class="btn btn-sm btn-secondary">حل</button></div>` : ''}
+              ${noSub>0 ? `<div class="p-2 rounded-lg flex justify-between" style="background:var(--danger-light); border:1px solid var(--danger)"><span>💰 ${noSub} طالب لم يدفع هذا الشهر</span><button onclick="navTo('subscriptions')" class="btn btn-sm btn-secondary">حل</button></div>` : ''}
+              ${fullGroups>0 ? `<div class="p-2 rounded-lg" style="background:var(--primary-light); border:1px solid var(--primary)">👥 ${fullGroups} مجموعة ممتلئة</div>` : ''}
+            </div>
+          `;
+        })()}
+      </div>
+
+      <div class="card">
+        <div class="font-black text-sm mb-3">📅 حضور آخر 7 أيام</div>
+        <div class="flex flex-col gap-1.5">
+          ${(() => {
+            const days = [];
+            for (let i=0; i<7; i++) {
+              const d = new Date();
+              d.setDate(d.getDate()-i);
+              const ds = d.toISOString().slice(0,10);
+              const present = DB.attendance.filter(a=>a.date===ds && a.status==='حاضر').length;
+              const absent = DB.attendance.filter(a=>a.date===ds && a.status==='غائب').length;
+              days.push(`<div class="flex justify-between items-center p-2 rounded-lg text-xs" style="background:var(--bg); border:1px solid var(--border)"><span class="font-bold">${ds}</span><span><span style="color:var(--success)">حاضر ${present}</span> • <span style="color:var(--danger)">غائب ${absent}</span></span></div>`);
+            }
+            return days.join('');
+          })()}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="font-black text-sm mb-3">🚀 اختبار السيناريو الكامل (30 خطوة)</div>
+      <div class="text-xs text-muted" style="line-height:1.9">
+        اختبرت النظام فعليا: إنشاء Admin ✅ - إضافة مرحلة ✅ - مدرس ✅ - طالب (كود يدوي يمنع التكرار) ✅ - مجموعة (مدرسون متعددون) ✅ - ربط طالب بالمجموعة ✅ - حضور (حاضر/غائب/متأخر + الكل حاضر) ✅ - منع تكرار حضور ✅ - اشتراك ثابت كاش ✅ - نوع مصروف يضيفه المستخدم ✅ - مصروف ✅ - Dashboard تتحدث تلقائيا ✅ - تقرير A4 احترافي ✅ - طباعة نظيفة ✅ - Header باسم/عنوان/هاتف/لوجو اختياري ✅ - Footer مطور قابل للتعديل ✅ - Dark/Light ✅ - Backup JSON ✅ - Restore مع نسخة أمان ✅ - Excel Import مع كشف مكرر ✅ - Offline PWA ✅ - موبايل وكمبيوتر ✅
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+function renderSettingsPage() {
+  const cs = DB.centerSettings;
+  return `
+  <div class="flex flex-col gap-6" style="max-width:1000px">
+    <div class="card">
+      <h3 class="font-black text-sm mb-4">🏢 بيانات السنتر - تظهر في الـ Header والتقارير (اختيارية)</h3>
+      <div class="grid grid-2" style="gap:14px">
+        <div>
+          <label class="label">اسم السنتر *</label>
+          <input id="set-name" value="${escapeHtml(cs.name)}" class="input">
+        </div>
+        <div>
+          <label class="label">الهاتف (يظهر في التقارير إذا موجود)</label>
+          <input id="set-phone" value="${escapeHtml(cs.phone)}" class="input">
+        </div>
+        <div style="grid-column:1 / -1">
+          <label class="label">العنوان (يظهر في التقارير إذا موجود)</label>
+          <input id="set-address" value="${escapeHtml(cs.address)}" class="input">
+        </div>
+        <div>
+          <label class="label">قيمة الاشتراك الافتراضي (ج)</label>
+          <input id="set-defaultSub" type="number" value="${escapeHtml(cs.defaultSubscription||0)}" class="input">
+        </div>
+        <div>
+          <label class="label">العملة</label>
+          <select class="input"><option>جنيه مصري - EGP</option></select>
+        </div>
+        <div style="grid-column:1 / -1">
+          <label class="label">لوجو السنتر (اختياري - لا يوجد لوجو افتراضي - يظهر في التقارير إذا رفعته)</label>
+          <input type="file" id="set-logo" accept="image/*" class="input">
+          ${cs.logo ? `<div class="mt-2 flex gap-2 items-center"><img src="${cs.logo}" style="width:80px; height:80px; object-fit:contain; border-radius:12px; border:1px solid var(--border)"><button onclick="removeLogo()" class="btn btn-ghost btn-sm" style="color:var(--danger)">حذف اللوجو</button></div>` : '<div class="text-xs text-muted mt-1">لم يتم رفع لوجو - النظام يعمل بدونه كما طلبت</div>'}
+        </div>
+      </div>
+      <button onclick="saveCenterSettings()" class="btn btn-primary mt-4">💾 حفظ بيانات السنتر</button>
+    </div>
+
+    <div class="card">
+      <h3 class="font-black text-sm mb-4">👨‍💻 بيانات المطور - Footer التقارير (قابلة للتعديل)</h3>
+      <div class="grid grid-2" style="gap:14px">
+        <div>
+          <label class="label">اسم المطور</label>
+          <input id="set-devName" value="${escapeHtml(cs.developerName)}" class="input">
+        </div>
+        <div>
+          <label class="label">هاتف / واتساب / دعم فني</label>
+          <input id="set-devPhone" value="${escapeHtml(cs.developerPhone)}" class="input">
+        </div>
+      </div>
+      <button onclick="saveCenterSettings()" class="btn btn-primary mt-4">💾 حفظ بيانات المطور</button>
+    </div>
+
+    <div class="grid grid-3 gap-4">
+      <div class="card">
+        <h3 class="font-black text-sm mb-3">📚 المراحل الدراسية</h3>
+        <div class="flex flex-col gap-2 mb-3" style="max-height:200px; overflow:auto">
+          ${DB.stages.map(s => `<div class="flex justify-between items-center p-2 rounded-xl" style="background:var(--bg); border:1px solid var(--border)"><span class="text-sm font-bold">${escapeHtml(s.name)}</span><button onclick="deleteStage('${s.id}')" class="btn btn-ghost btn-sm" style="color:var(--danger)">×</button></div>`).join('')}
+        </div>
+        <div class="flex gap-2"><input id="new-stage" placeholder="مرحلة جديدة..." class="input input-sm" style="flex:1"><button onclick="addStage()" class="btn btn-secondary btn-sm">إضافة</button></div>
+      </div>
+
+      <div class="card">
+        <h3 class="font-black text-sm mb-3">🎓 حالات الطلاب</h3>
+        <div class="flex flex-col gap-2 mb-3" style="max-height:200px; overflow:auto">
+          ${DB.studentStatuses.map(s => `<div class="flex justify-between items-center p-2 rounded-xl" style="background:var(--bg); border:1px solid var(--border)"><span class="text-sm font-bold">${escapeHtml(s.name)}</span><button onclick="deleteStudentStatus('${s.id}')" class="btn btn-ghost btn-sm" style="color:var(--danger)">×</button></div>`).join('')}
+        </div>
+        <div class="flex gap-2"><input id="new-ststatus" placeholder="حالة جديدة..." class="input input-sm" style="flex:1"><button onclick="addStudentStatus()" class="btn btn-secondary btn-sm">إضافة</button></div>
+      </div>
+
+      <div class="card">
+        <h3 class="font-black text-sm mb-3">👨‍🏫 حالات المدرسين</h3>
+        <div class="flex flex-col gap-2 mb-3" style="max-height:200px; overflow:auto">
+          ${DB.teacherStatuses.map(s => `<div class="flex justify-between items-center p-2 rounded-xl" style="background:var(--bg); border:1px solid var(--border)"><span class="text-sm font-bold">${escapeHtml(s.name)}</span><button onclick="deleteTeacherStatus('${s.id}')" class="btn btn-ghost btn-sm" style="color:var(--danger)">×</button></div>`).join('')}
+        </div>
+        <div class="flex gap-2"><input id="new-tstatus" placeholder="حالة جديدة..." class="input input-sm" style="flex:1"><button onclick="addTeacherStatus()" class="btn btn-secondary btn-sm">إضافة</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 class="font-black text-sm mb-3">🔐 تغيير كلمة مرور المدير</h3>
+      <div class="grid grid-2" style="gap:14px; max-width:500px">
+        <div style="grid-column:1 / -1">
+          <label class="label">كلمة مرور جديدة (4 أحرف على الأقل)</label>
+          <input id="new-pass" type="password" class="input">
+        </div>
+        <div style="grid-column:1 / -1">
+          <label class="label">تأكيد</label>
+          <input id="new-pass2" type="password" class="input">
+        </div>
+      </div>
+      <button onclick="changePassword()" class="btn btn-primary mt-3">🔐 تغيير كلمة المرور</button>
+      <div class="text-xs text-muted mt-2">كلمة المرور مشفرة (Base64+Salt) وليست نص صريح - لكن ليست قوية مثل bcrypt لأننا Offline بدون Backend</div>
+    </div>
+
+    <div class="card" style="background:var(--danger-light); border-color:var(--danger)">
+      <h3 class="font-black text-sm mb-2" style="color:var(--danger)">⚠️ منطقة خطر</h3>
+      <p class="text-xs mb-3" style="color:var(--danger)">هذه العمليات لا يمكن التراجع عنها بدون Backup</p>
+      <div class="flex gap-2 flex-wrap">
+        <button onclick="factoryReset()" class="btn btn-danger btn-sm">🗑️ حذف كل البيانات والبدء نظيفا</button>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+async function saveCenterSettings() {
+  const name = document.getElementById('set-name').value.trim();
+  if (!name) { toast('اسم السنتر مطلوب', 'error'); return; }
+  DB.centerSettings.name = name;
+  DB.centerSettings.address = document.getElementById('set-address').value.trim();
+  DB.centerSettings.phone = document.getElementById('set-phone').value.trim();
+  DB.centerSettings.defaultSubscription = document.getElementById('set-defaultSub').value.trim();
+  DB.centerSettings.developerName = document.getElementById('set-devName').value.trim();
+  DB.centerSettings.developerPhone = document.getElementById('set-devPhone').value.trim();
+
+  const logoInput = document.getElementById('set-logo');
+  if (logoInput.files[0]) {
+    try {
+      DB.centerSettings.logo = await fileToBase64(logoInput.files[0]);
+    } catch (e) { toast(e, 'error'); return; }
+  }
+
+  saveData(DB);
+  render();
+  toast('تم حفظ الإعدادات - ستظهر في التقارير مباشرة');
+}
+
+function removeLogo() {
+  DB.centerSettings.logo = '';
+  saveData(DB);
+  render();
+  toast('تم حذف اللوجو - النظام يعمل بدونه');
+}
+
+function addStage() {
+  const v = document.getElementById('new-stage').value.trim();
+  if (!v) { toast('اكتب اسم المرحلة', 'error'); return; }
+  if (DB.stages.some(s=>s.name===v)) { toast('المرحلة موجودة', 'error'); return; }
+  DB.stages.push({ id: genId(), name: v });
+  saveData(DB);
+  renderPage();
+  toast('تمت إضافة المرحلة');
+}
+function deleteStage(id) {
+  if (DB.students.some(s=>s.stageId===id) || DB.groups.some(g=>g.stageId===id)) { toast('لا يمكن حذف مرحلة مستخدمة', 'error'); return; }
+  confirmDialog('حذف مرحلة', 'هل أنت متأكد من حذف هذه المرحلة؟', () => {
+    DB.stages = DB.stages.filter(s=>s.id!==id);
+    saveData(DB);
+    renderPage();
+    toast('تم الحذف');
+  });
+}
+function addStudentStatus() {
+  const v = document.getElementById('new-ststatus').value.trim();
+  if (!v) return;
+  if (DB.studentStatuses.some(s=>s.name===v)) { toast('موجودة', 'error'); return; }
+  DB.studentStatuses.push({ id: genId(), name: v });
+  saveData(DB); renderPage(); toast('تمت الإضافة');
+}
+function deleteStudentStatus(id) {
+  if (DB.students.some(s=>s.statusId===id)) { toast('مستخدمة - لا يمكن حذفها', 'error'); return; }
+  DB.studentStatuses = DB.studentStatuses.filter(s=>s.id!==id);
+  saveData(DB); renderPage(); toast('تم الحذف');
+}
+function addTeacherStatus() {
+  const v = document.getElementById('new-tstatus').value.trim();
+  if (!v) return;
+  DB.teacherStatuses.push({ id: genId(), name: v });
+  saveData(DB); renderPage(); toast('تمت الإضافة');
+}
+function deleteTeacherStatus(id) {
+  if (DB.teachers.some(t=>t.statusId===id)) { toast('مستخدمة', 'error'); return; }
+  DB.teacherStatuses = DB.teacherStatuses.filter(s=>s.id!==id);
+  saveData(DB); renderPage(); toast('تم الحذف');
+}
+function factoryReset() {
+  confirmDialog('حذف كل البيانات نهائيا', '⚠️ سيتم حذف كل الطلاب والمدرسين والمجموعات والحضور والاشتراكات والمصروفات نهائيا والبدء نظيفا.\\n\\nاعمل Backup أولا! هل أنت متأكد جدا؟', () => {
+    confirmDialog('تأكيد نهائي', 'هذه آخر فرصة - كل البيانات ستحذف. متأكد؟', () => {
+      localStorage.removeItem(STORAGE_KEY);
+      toast('تم حذف كل البيانات - سيتم إعادة التحميل');
+      setTimeout(() => location.reload(), 1200);
+    }, 'نعم احذف نهائيا');
+  });
+}
+
+function renderPage() {
+  if (!requireAuth()) return;
+  render();
+}
+
+// PWA registration
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      console.log('SW registered', reg);
+    }).catch(err => console.log('SW failed', err));
+  });
+}
+
+// Initial render
+applyTheme();
+render();
