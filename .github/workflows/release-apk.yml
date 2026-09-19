@@ -1,0 +1,171 @@
+name: Release APK - Download Easy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle 8.2.1
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.2.1
+
+      - name: Setup Android SDK
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
+
+      - name: Create Android Project
+        run: |
+          rm -rf android-app
+          mkdir -p android-app/app/src/main/java/com/stgeorge/center
+          mkdir -p android-app/app/src/main/res/layout
+          mkdir -p android-app/app/src/main/res/values
+          mkdir -p android-app/app/src/main/assets
+          cp index.html android-app/app/src/main/assets/index.html 2>/dev/null || echo "<html><body>St George</body></html>" > android-app/app/src/main/assets/index.html
+          
+          cat > android-app/gradle.properties << 'PROP'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          PROP
+          
+          cat > android-app/app/src/main/AndroidManifest.xml << 'MANIFEST'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.stgeorge.center">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <application android:allowBackup="true" android:label="سنتر سان جورج" android:supportsRtl="true" android:theme="@android:style/Theme.NoTitleBar" android:usesCleartextTraffic="true">
+                  <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|keyboardHidden|screenSize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          MANIFEST
+
+          cat > android-app/app/src/main/java/com/stgeorge/center/MainActivity.java << 'JAVA'
+          package com.stgeorge.center;
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import androidx.appcompat.app.AppCompatActivity;
+          public class MainActivity extends AppCompatActivity {
+              private WebView webView;
+              private static final String SITE_URL = "https://markeshak0000-blip.github.io/center/";
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  webView = new WebView(this);
+                  setContentView(webView);
+                  WebSettings s = webView.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setDatabaseEnabled(true);
+                  s.setAllowFileAccess(true);
+                  s.setAllowFileAccessFromFileURLs(true);
+                  s.setAllowUniversalAccessFromFileURLs(true);
+                  s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                  s.setCacheMode(WebSettings.LOAD_DEFAULT);
+                  webView.setWebViewClient(new WebViewClient());
+                  try { webView.loadUrl(SITE_URL); }
+                  catch (Exception e) { webView.loadUrl("file:///android_asset/index.html"); }
+              }
+              @Override
+              public void onBackPressed() {
+                  if (webView.canGoBack()) webView.goBack();
+                  else super.onBackPressed();
+              }
+          }
+          JAVA
+
+          cat > android-app/app/src/main/res/layout/activity_main.xml << 'LAYOUT'
+          <?xml version="1.0" encoding="utf-8"?>
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent">
+              <WebView android:id="@+id/webview" android:layout_width="match_parent" android:layout_height="match_parent" />
+          </RelativeLayout>
+          LAYOUT
+
+          cat > android-app/app/src/main/res/values/strings.xml << 'STR'
+          <resources><string name="app_name">سنتر سان جورج</string></resources>
+          STR
+
+          cat > android-app/build.gradle << 'BG'
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.1.2' }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          BG
+
+          cat > android-app/settings.gradle << 'SG'
+          include ':app'
+          SG
+
+          cat > android-app/app/build.gradle << 'ABG'
+          plugins { id 'com.android.application' }
+          android {
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.stgeorge.center"
+                  minSdk 21
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              buildTypes {
+                  release { minifyEnabled false }
+                  debug { minifyEnabled false }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_1_8
+                  targetCompatibility JavaVersion.VERSION_1_8
+              }
+              namespace 'com.stgeorge.center'
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+          }
+          ABG
+
+      - name: Build APK
+        run: |
+          cd android-app
+          gradle assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: |
+          cp android-app/app/build/outputs/apk/debug/app-debug.apk StGeorge-Center.apk
+          ls -lh StGeorge-Center.apk
+
+      - name: Create Release and Upload APK
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "سنتر سان جورج APK v1.0.${{ github.run_number }}"
+          body: "تطبيق أندرويد سنتر سان جورج - جاهز للتثبيت\n\nحمل الملف StGeorge-Center.apk وثبته على موبايلك"
+          files: StGeorge-Center.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
