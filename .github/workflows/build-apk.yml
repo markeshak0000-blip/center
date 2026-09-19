@@ -1,4 +1,4 @@
-name: Build Android APK - St George Center FINAL
+name: Build Android APK - St George Center FINAL FIX
 
 on:
   push:
@@ -19,37 +19,32 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Gradle 8.2.1 (FIX for Gradle 9 issue)
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.2.1
+
       - name: Setup Android SDK
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
 
-      - name: Create Android Project Structure
+      - name: Create Android Project
         run: |
+          rm -rf android-app
           mkdir -p android-app/app/src/main/java/com/stgeorge/center
           mkdir -p android-app/app/src/main/res/layout
           mkdir -p android-app/app/src/main/res/values
           mkdir -p android-app/app/src/main/assets
-          cp index.html android-app/app/src/main/assets/index.html || echo "no index.html"
+          cp index.html android-app/app/src/main/assets/index.html 2>/dev/null || echo "<html><body>St George Center</body></html>" > android-app/app/src/main/assets/index.html
           
-      - name: Create AndroidManifest.xml
-        run: |
-          cat > android-app/app/src/main/AndroidManifest.xml << 'EOF'
+          cat > android-app/app/src/main/AndroidManifest.xml << 'MANIFEST'
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-              package="com.stgeorge.center">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.stgeorge.center">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-              <application
-                  android:allowBackup="true"
-                  android:label="سنتر سان جورج"
-                  android:supportsRtl="true"
-                  android:theme="@android:style/Theme.NoTitleBar"
-                  android:usesCleartextTraffic="true">
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true"
-                      android:configChanges="orientation|keyboardHidden|screenSize">
+              <application android:allowBackup="true" android:label="سنتر سان جورج" android:supportsRtl="true" android:theme="@android:style/Theme.NoTitleBar" android:usesCleartextTraffic="true">
+                  <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|keyboardHidden|screenSize">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -57,11 +52,9 @@ jobs:
                   </activity>
               </application>
           </manifest>
-          EOF
+          MANIFEST
 
-      - name: Create MainActivity.java
-        run: |
-          cat > android-app/app/src/main/java/com/stgeorge/center/MainActivity.java << 'EOF'
+          cat > android-app/app/src/main/java/com/stgeorge/center/MainActivity.java << 'JAVA'
           package com.stgeorge.center;
           import android.os.Bundle;
           import android.webkit.WebSettings;
@@ -86,11 +79,8 @@ jobs:
                   s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
                   s.setCacheMode(WebSettings.LOAD_DEFAULT);
                   webView.setWebViewClient(new WebViewClient());
-                  try {
-                      webView.loadUrl(SITE_URL);
-                  } catch (Exception e) {
-                      webView.loadUrl("file:///android_asset/index.html");
-                  }
+                  try { webView.loadUrl(SITE_URL); }
+                  catch (Exception e) { webView.loadUrl("file:///android_asset/index.html"); }
               }
               @Override
               public void onBackPressed() {
@@ -98,47 +88,32 @@ jobs:
                   else super.onBackPressed();
               }
           }
-          EOF
+          JAVA
 
-      - name: Create layout and values
-        run: |
-          cat > android-app/app/src/main/res/layout/activity_main.xml << 'EOF'
+          cat > android-app/app/src/main/res/layout/activity_main.xml << 'LAYOUT'
           <?xml version="1.0" encoding="utf-8"?>
-          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent">
-              <WebView android:id="@+id/webview"
-                  android:layout_width="match_parent"
-                  android:layout_height="match_parent" />
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent">
+              <WebView android:id="@+id/webview" android:layout_width="match_parent" android:layout_height="match_parent" />
           </RelativeLayout>
-          EOF
-          
-          cat > android-app/app/src/main/res/values/strings.xml << 'EOF'
-          <resources><string name="app_name">سنتر سان جورج</string></resources>
-          EOF
-          
-          cat > android-app/app/src/main/res/values/colors.xml << 'EOF'
-          <resources>
-              <color name="colorPrimary">#1e40af</color>
-              <color name="colorPrimaryDark">#1e3a8a</color>
-          </resources>
-          EOF
+          LAYOUT
 
-      - name: Create build.gradle files
-        run: |
-          cat > android-app/build.gradle << 'EOF'
+          cat > android-app/app/src/main/res/values/strings.xml << 'STR'
+          <resources><string name="app_name">سنتر سان جورج</string></resources>
+          STR
+
+          cat > android-app/build.gradle << 'BG'
           buildscript {
               repositories { google(); mavenCentral() }
               dependencies { classpath 'com.android.tools.build:gradle:8.1.2' }
           }
           allprojects { repositories { google(); mavenCentral() } }
-          EOF
-          
-          cat > android-app/settings.gradle << 'EOF'
+          BG
+
+          cat > android-app/settings.gradle << 'SG'
           include ':app'
-          EOF
-          
-          cat > android-app/app/build.gradle << 'EOF'
+          SG
+
+          cat > android-app/app/build.gradle << 'ABG'
           plugins { id 'com.android.application' }
           android {
               compileSdk 34
@@ -157,18 +132,17 @@ jobs:
                   sourceCompatibility JavaVersion.VERSION_1_8
                   targetCompatibility JavaVersion.VERSION_1_8
               }
+              namespace 'com.stgeorge.center'
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
           }
-          EOF
+          ABG
 
-      - name: Build APK
+      - name: Build APK with Gradle 8.2.1
         run: |
           cd android-app
-          gradle wrapper --gradle-version 8.2.1
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
