@@ -1,12 +1,9 @@
-name: Build Android APK - St George Center
+name: Build Android APK - St George Center FINAL
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
-
-env:
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
 jobs:
   build-apk:
@@ -16,41 +13,167 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK - Accept Licenses & Install Platforms
+      - name: Setup Android SDK
         run: |
-          echo "Fixing SDK..."
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" "platforms;android-33" || true
-          echo "SDK Ready"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
 
-      - name: Install Capacitor
+      - name: Create Android Project Structure
         run: |
-          npm install @capacitor/core @capacitor/cli @capacitor/android --save
-          npx cap init "StGeorge" "com.stgeorge.center" --web-dir="." || true
-          npx cap add android || true
-          npx cap copy android || true
+          mkdir -p android-app/app/src/main/java/com/stgeorge/center
+          mkdir -p android-app/app/src/main/res/layout
+          mkdir -p android-app/app/src/main/res/values
+          mkdir -p android-app/app/src/main/assets
+          cp index.html android-app/app/src/main/assets/index.html || echo "no index.html"
+          
+      - name: Create AndroidManifest.xml
+        run: |
+          cat > android-app/app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.stgeorge.center">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <application
+                  android:allowBackup="true"
+                  android:label="سنتر سان جورج"
+                  android:supportsRtl="true"
+                  android:theme="@android:style/Theme.NoTitleBar"
+                  android:usesCleartextTraffic="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|keyboardHidden|screenSize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
 
-      - name: Build APK Debug
+      - name: Create MainActivity.java
         run: |
-          cd android
+          cat > android-app/app/src/main/java/com/stgeorge/center/MainActivity.java << 'EOF'
+          package com.stgeorge.center;
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import androidx.appcompat.app.AppCompatActivity;
+          public class MainActivity extends AppCompatActivity {
+              private WebView webView;
+              private static final String SITE_URL = "https://markeshak0000-blip.github.io/center/";
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  webView = new WebView(this);
+                  setContentView(webView);
+                  WebSettings s = webView.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setDatabaseEnabled(true);
+                  s.setAllowFileAccess(true);
+                  s.setAllowFileAccessFromFileURLs(true);
+                  s.setAllowUniversalAccessFromFileURLs(true);
+                  s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                  s.setCacheMode(WebSettings.LOAD_DEFAULT);
+                  webView.setWebViewClient(new WebViewClient());
+                  try {
+                      webView.loadUrl(SITE_URL);
+                  } catch (Exception e) {
+                      webView.loadUrl("file:///android_asset/index.html");
+                  }
+              }
+              @Override
+              public void onBackPressed() {
+                  if (webView.canGoBack()) webView.goBack();
+                  else super.onBackPressed();
+              }
+          }
+          EOF
+
+      - name: Create layout and values
+        run: |
+          cat > android-app/app/src/main/res/layout/activity_main.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent">
+              <WebView android:id="@+id/webview"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent" />
+          </RelativeLayout>
+          EOF
+          
+          cat > android-app/app/src/main/res/values/strings.xml << 'EOF'
+          <resources><string name="app_name">سنتر سان جورج</string></resources>
+          EOF
+          
+          cat > android-app/app/src/main/res/values/colors.xml << 'EOF'
+          <resources>
+              <color name="colorPrimary">#1e40af</color>
+              <color name="colorPrimaryDark">#1e3a8a</color>
+          </resources>
+          EOF
+
+      - name: Create build.gradle files
+        run: |
+          cat > android-app/build.gradle << 'EOF'
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.1.2' }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          EOF
+          
+          cat > android-app/settings.gradle << 'EOF'
+          include ':app'
+          EOF
+          
+          cat > android-app/app/build.gradle << 'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.stgeorge.center"
+                  minSdk 21
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              buildTypes {
+                  release { minifyEnabled false }
+                  debug { minifyEnabled false }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_1_8
+                  targetCompatibility JavaVersion.VERSION_1_8
+              }
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+          }
+          EOF
+
+      - name: Build APK
+        run: |
+          cd android-app
+          gradle wrapper --gradle-version 8.2.1
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: StGeorge-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
+          name: StGeorge-APK-FINAL
+          path: android-app/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 30
