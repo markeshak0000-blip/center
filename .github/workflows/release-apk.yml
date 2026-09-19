@@ -1,4 +1,4 @@
-name: Release APK v1.2 ULTRA FIXED
+name: Release APK v1.4 CUSTOM ICON - سان جورج FULL
 
 on:
   workflow_dispatch:
@@ -32,13 +32,76 @@ jobs:
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
 
-      - name: Create ULTRA SIMPLE Project - No Crash
+      - name: Create Project with YOUR Custom Icon FULL
         run: |
           rm -rf android-app
           mkdir -p android-app/app/src/main/java/com/stgeorge/center
           mkdir -p android-app/app/src/main/res/values
+          mkdir -p android-app/app/src/main/res/mipmap-hdpi
+          mkdir -p android-app/app/src/main/res/mipmap-mdpi
+          mkdir -p android-app/app/src/main/res/mipmap-xhdpi
+          mkdir -p android-app/app/src/main/res/mipmap-xxhdpi
+          mkdir -p android-app/app/src/main/res/mipmap-xxxhdpi
           mkdir -p android-app/app/src/main/assets
-          cp index.html android-app/app/src/main/assets/index.html 2>/dev/null || echo "<html><head><meta charset='utf-8'><style>body{font-family:Arial;text-align:center;padding:50px;background:#1e40af;color:white}h1{font-size:32px}</style></head><body><h1>سنتر سان جورج</h1><p>مرحبا - التطبيق شغال!</p><p><a href='https://markeshak0000-blip.github.io/center/' style='color:white'>افتح الموقع</a></p></body></html>" > android-app/app/src/main/assets/index.html
+          cp index.html android-app/app/src/main/assets/index.html 2>/dev/null || cat > android-app/app/src/main/assets/index.html << 'HTML'
+          <!DOCTYPE html>
+          <html lang="ar" dir="rtl">
+          <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>سنتر سان جورج</title>
+          <style>
+          body{font-family:Arial,Tahoma;text-align:center;padding:30px;background:linear-gradient(135deg,#1e3a8a,#3b82f6);color:white;min-height:100vh;margin:0}
+          .container{background:rgba(255,255,255,0.1);backdrop-filter:blur(10px);border-radius:20px;padding:30px;margin:20px auto;max-width:500px;border:2px solid gold}
+          h1{font-size:32px;color:gold;text-shadow:2px 2px 4px black}
+          a{display:inline-block;background:gold;color:#1e3a8a;padding:15px 30px;border-radius:10px;text-decoration:none;font-weight:bold;margin:10px}
+          </style>
+          </head>
+          <body>
+          <div class="container">
+          <h1>سان جورج</h1>
+          <p>سنتر دروس كل المواد - ابتدائي و إعدادي</p>
+          <p>✅ شغال 100% بأيقونتك</p>
+          <a href="https://markeshak0000-blip.github.io/center/">🌐 افتح الموقع</a>
+          </div>
+          </body>
+          </html>
+          HTML
+          
+          python3 << 'PYEOF'
+          from PIL import Image, ImageDraw
+          import os
+          def create_icon(src_path, size, out_path):
+              try:
+                  src = Image.open(src_path).convert("RGBA")
+                  w,h = src.size
+                  crop_h = int(h*0.72)
+                  sz = min(w, crop_h)
+                  cx = w//2
+                  cy = crop_h//2
+                  cropped = src.crop((cx-sz//2, cy-sz//2, cx+sz//2, cy+sz//2))
+                  resized = cropped.resize((size, size), Image.LANCZOS)
+              except:
+                  resized = Image.new('RGBA', (size,size), (30,58,138,255))
+                  draw = ImageDraw.Draw(resized)
+                  draw.rounded_rectangle([0,0,size,size], radius=int(size*0.22), fill=(30,58,138,255))
+              mask = Image.new('L', (size,size), 0)
+              d = ImageDraw.Draw(mask)
+              d.rounded_rectangle([0,0,size,size], radius=int(size*0.22), fill=255)
+              out = Image.new('RGBA', (size,size), (0,0,0,0))
+              out.paste(resized, (0,0), mask)
+              out.save(out_path, 'PNG')
+          
+          found = None
+          for p in ['custom_icon.jpg','custom_icon.jpeg','custom_icon.png']:
+              if os.path.exists(p):
+                  found = p
+                  break
+          src = found
+          for sz,name in [(48,'mdpi'),(72,'hdpi'),(96,'xhdpi'),(144,'xxhdpi'),(192,'xxxhdpi')]:
+              create_icon(src, sz, f'android-app/app/src/main/res/mipmap-{name}/ic_launcher.png')
+          create_icon(src, 512, 'stgeorge-icon-512.png')
+          PYEOF
           
           cat > android-app/gradle.properties << 'PROP'
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
@@ -48,8 +111,9 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.stgeorge.center">
               <uses-permission android:name="android.permission.INTERNET" />
-              <application android:allowBackup="true" android:label="سنتر سان جورج" android:theme="@android:style/Theme.NoTitleBar">
-                  <activity android:name=".MainActivity" android:exported="true" android:hardwareAccelerated="true">
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <application android:allowBackup="true" android:label="سنتر سان جورج" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:theme="@android:style/Theme.NoTitleBar" android:hardwareAccelerated="true">
+                  <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -66,36 +130,41 @@ jobs:
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
           import android.webkit.WebSettings;
-
+          import android.net.ConnectivityManager;
+          import android.net.NetworkInfo;
+          import android.content.Context;
           public class MainActivity extends Activity {
               WebView wv;
+              String ONLINE_URL = "https://markeshak0000-blip.github.io/center/";
+              String OFFLINE_URL = "file:///android_asset/index.html";
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
                   wv = new WebView(this);
                   setContentView(wv);
-                  
                   WebSettings s = wv.getSettings();
                   s.setJavaScriptEnabled(true);
                   s.setDomStorageEnabled(true);
                   s.setAllowFileAccess(true);
                   s.setUseWideViewPort(true);
                   s.setLoadWithOverviewMode(true);
-                  
-                  wv.setWebViewClient(new WebViewClient() {
-                      @Override
-                      public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                          return false;
-                      }
-                  });
-                  
-                  // حمل المحلي أولا - مستحيل يعمل Crash
-                  wv.loadUrl("file:///android_asset/index.html");
+                  wv.setWebViewClient(new WebViewClient());
+                  if(isNetworkAvailable()){
+                      wv.loadUrl(ONLINE_URL);
+                  } else {
+                      wv.loadUrl(OFFLINE_URL);
+                  }
               }
-              
+              private boolean isNetworkAvailable() {
+                  try {
+                      ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                      NetworkInfo ni = cm.getActiveNetworkInfo();
+                      return ni != null && ni.isConnected();
+                  } catch(Exception e){ return false; }
+              }
               @Override
               public void onBackPressed() {
-                  if (wv.canGoBack()) wv.goBack();
+                  if(wv.canGoBack()) wv.goBack();
                   else super.onBackPressed();
               }
           }
@@ -125,8 +194,8 @@ jobs:
                   applicationId "com.stgeorge.center"
                   minSdk 21
                   targetSdk 34
-                  versionCode 3
-                  versionName "1.2"
+                  versionCode 6
+                  versionName "1.4"
               }
               buildTypes {
                   release { minifyEnabled false }
@@ -136,22 +205,24 @@ jobs:
           }
           ABG
 
-      - name: Build APK v1.2
+      - name: Build APK v1.4 FULL
         run: |
           cd android-app
           gradle assembleDebug --no-daemon
 
       - name: Rename APK
         run: |
-          cp android-app/app/build/outputs/apk/debug/app-debug.apk StGeorge-v1.2-FINAL.apk
-          ls -lh StGeorge-v1.2-FINAL.apk
+          cp android-app/app/build/outputs/apk/debug/app-debug.apk StGeorge-v1.4-CUSTOM-ICON-FULL.apk
+          ls -lh *.apk
 
-      - name: Create Release v1.2
+      - name: Create Release v1.4 FULL
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v1.2.${{ github.run_number }}
-          name: "سنتر سان جورج v1.2 - شغال 100% - بدون توقف"
-          body: "✅ النسخة النهائية المضمونة - بتفتح مباشر بدون نت\n\nلو عايز الموقع الأونلاين دوس على اللينك جوه التطبيق\n\nحمل StGeorge-v1.2-FINAL.apk"
-          files: StGeorge-v1.2-FINAL.apk
+          tag_name: v1.4.${{ github.run_number }}
+          name: "سنتر سان جورج v1.4 FULL - بأيقونتك 🔥"
+          body: "✅ بأيقونتك المخصصة - سان جورج على الحصان\n🌐 أونلاين + 📱 أوفلاين\nشغال 100%"
+          files: |
+            StGeorge-v1.4-CUSTOM-ICON-FULL.apk
+            stgeorge-icon-512.png
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
